@@ -227,13 +227,11 @@ function NavigationSidebar({
     <aside className="w-64 min-h-screen bg-brand-dark border-r border-brand-medium/40 flex flex-col fixed left-0 top-0 z-30">
       {/* Logo */}
       <div className="px-5 py-6 border-b border-brand-medium/40 flex flex-col items-center justify-center bg-brand-darkest/40 gap-3">
-        <div className="bg-white rounded-xl p-2 flex items-center justify-center shadow-lg border border-slate-200/10 w-full max-w-[180px]">
-          <img
-            src="/azul_logo_2.jpg"
-            alt="Azul Linhas Aéreas"
-            className="h-10 w-auto object-contain"
-          />
-        </div>
+        <img
+          src="/azul_logo_2.png"
+          alt="Azul Linhas Aéreas"
+          className="h-14 w-auto object-contain"
+        />
         <div className="text-center">
           <h1 className="text-xs font-black text-slate-100 tracking-widest uppercase leading-none">Escola Recomendada</h1>
           <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest mt-1">Gestão de Treinamento</p>
@@ -1847,13 +1845,11 @@ function LoginScreen() {
 
       <div className="w-full max-w-md bg-brand-dark/40 backdrop-blur-md border border-brand-medium/30 rounded-3xl shadow-2xl p-8 flex flex-col gap-6 relative z-10">
         <div className="flex flex-col items-center gap-3">
-          <div className="bg-white rounded-2xl p-4 flex items-center justify-center shadow-lg shadow-sky-500/5 border border-slate-200/10 w-full max-w-[220px]">
-            <img
-              src="/azul_logo_2.jpg"
-              alt="Azul Linhas Aéreas"
-              className="h-14 w-auto object-contain"
-            />
-          </div>
+          <img
+            src="/azul_logo_2.png"
+            alt="Azul Linhas Aéreas"
+            className="h-24 w-auto object-contain"
+          />
           <div className="text-center mt-2">
             <h1 className="text-lg font-black text-slate-100 tracking-wider uppercase leading-none">Escola Recomendada</h1>
             <p className="text-[10px] text-slate-500 font-bold tracking-wider uppercase mt-1">Gestão de Treinamentos</p>
