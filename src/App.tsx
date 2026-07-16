@@ -1173,6 +1173,24 @@ function AdminEditModuleModal({ candidateName, moduleCode, prog, schools, onSubm
   const [classSheets, setClassSheets] = useState<string[]>(prog.classSheets || ['']);
   const [confirmingAnnul, setConfirmingAnnul] = useState(false);
 
+  const downloadFile = async (url: string, filename: string) => {
+    try {
+      const response = await fetch(url);
+      const blob = await response.blob();
+      const blobUrl = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = blobUrl;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(blobUrl);
+    } catch (err) {
+      console.error('Erro ao baixar arquivo:', err);
+      window.open(url, '_blank');
+    }
+  };
+
   const addSheetField = () => setClassSheets([...classSheets, '']);
   const removeSheetField = (index: number) => setClassSheets(classSheets.filter((_, i) => i !== index));
   const updateSheetField = (index: number, val: string) => {
@@ -1216,7 +1234,28 @@ function AdminEditModuleModal({ candidateName, moduleCode, prog, schools, onSubm
                 className="w-full bg-brand-medium border border-brand-medium/40 text-slate-200 text-sm rounded-xl px-3 py-2.5 outline-none focus:border-brand-accent transition" />
             </div>
             <div>
-              <label className="text-[11px] text-slate-400 uppercase font-semibold tracking-wide block mb-1.5">Nome do Certificado (PDF)</label>
+              <label className="text-[11px] text-slate-400 uppercase font-semibold tracking-wide block mb-1.5 flex justify-between items-center">
+                <span>Nome do Certificado (PDF)</span>
+                {certName && certName.startsWith('http') && (
+                  <div className="flex gap-2 items-center">
+                    <a
+                      href={certName}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-[10px] text-sky-400 font-bold hover:underline hover:text-sky-300 transition"
+                    >
+                      Abrir Anexo
+                    </a>
+                    <button
+                      type="button"
+                      onClick={() => downloadFile(certName, `certificado_${candidateName.toLowerCase().replace(/\s+/g, '_')}.pdf`)}
+                      className="text-[10px] text-sky-400 font-bold hover:underline hover:text-sky-300 flex items-center gap-0.5"
+                    >
+                      <Download className="w-3 h-3" /> Baixar
+                    </button>
+                  </div>
+                )}
+              </label>
               <div className="relative">
                 <FileText className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
                 <input type="text" value={certName} onChange={(e) => setCertName(e.target.value)}
@@ -1226,28 +1265,52 @@ function AdminEditModuleModal({ candidateName, moduleCode, prog, schools, onSubm
             </div>
             <div>
               <label className="text-[11px] text-slate-400 uppercase font-semibold tracking-wide block mb-1.5">Fichas de Conclusão de Aula</label>
-              <div className="flex flex-col gap-2 max-h-36 overflow-y-auto pr-1">
+              <div className="flex flex-col gap-2 max-h-48 overflow-y-auto pr-1">
                 {classSheets.map((sheet, index) => (
-                  <div key={index} className="flex gap-2 items-center">
-                    <div className="relative flex-1">
-                      <FileText className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
-                      <input
-                        type="text"
-                        value={sheet}
-                        onChange={(e) => updateSheetField(index, e.target.value)}
-                        placeholder={`Ficha de aula ${index + 1}`}
-                        className="w-full bg-brand-medium border border-brand-medium/40 text-slate-200 text-sm rounded-xl pl-9 pr-3 py-2.5 outline-none focus:border-brand-accent transition"
-                      />
+                  <div key={index} className="flex flex-col gap-1 border-b border-brand-medium/10 pb-2 mb-2 last:border-b-0 last:pb-0 last:mb-0">
+                    <div className="flex justify-between items-center">
+                      <label className="text-[10px] text-slate-400 font-semibold uppercase">Ficha {index + 1}</label>
+                      {sheet && sheet.startsWith('http') && (
+                        <div className="flex gap-2 items-center">
+                          <a
+                            href={sheet}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-[9px] text-sky-400 font-bold hover:underline hover:text-sky-300 transition"
+                          >
+                            Abrir Ficha
+                          </a>
+                          <button
+                            type="button"
+                            onClick={() => downloadFile(sheet, `ficha_aula_${index + 1}_${candidateName.toLowerCase().replace(/\s+/g, '_')}.pdf`)}
+                            className="text-[9px] text-sky-400 font-bold hover:underline hover:text-sky-300 flex items-center gap-0.5"
+                          >
+                            <Download className="w-2.5 h-2.5" /> Baixar
+                          </button>
+                        </div>
+                      )}
                     </div>
-                    {classSheets.length > 1 && (
-                      <button
-                        type="button"
-                        onClick={() => removeSheetField(index)}
-                        className="p-2 rounded-xl bg-red-500/10 hover:bg-red-500 text-red-400 hover:text-slate-950 transition border border-red-500/25"
-                      >
-                        <X className="w-3.5 h-3.5" />
-                      </button>
-                    )}
+                    <div className="flex gap-2 items-center">
+                      <div className="relative flex-1">
+                        <FileText className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                        <input
+                          type="text"
+                          value={sheet}
+                          onChange={(e) => updateSheetField(index, e.target.value)}
+                          placeholder={`Link ou arquivo da Ficha ${index + 1}`}
+                          className="w-full bg-brand-medium border border-brand-medium/40 text-slate-200 text-sm rounded-xl pl-9 pr-3 py-2.5 outline-none focus:border-brand-accent transition"
+                        />
+                      </div>
+                      {classSheets.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => removeSheetField(index)}
+                          className="p-2 rounded-xl bg-red-500/10 hover:bg-red-500 text-red-400 hover:text-slate-950 transition border border-red-500/25"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
                   </div>
                 ))}
               </div>
