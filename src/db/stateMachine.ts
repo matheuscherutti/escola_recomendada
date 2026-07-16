@@ -246,10 +246,13 @@ export const stateMachine = {
     try {
       const timestamp = new Date().toISOString();
 
-      // Atualiza o progresso do módulo
+      // Atualiza ou insere o progresso do módulo (upsert autocurativo)
       const { error: updateModErr } = await supabase
         .from('candidate_module_progress')
-        .update({
+        .upsert({
+          id: `mod-${generateId()}`,
+          candidate_id: candidateId,
+          module_code: moduleCode,
           status: 'completed',
           completion_date: completionDate,
           school_id: schoolId,
@@ -258,12 +261,13 @@ export const stateMachine = {
           uploaded_at: timestamp,
           updated_by: currentUser.id,
           updated_at: timestamp
-        })
-        .eq('candidate_id', candidateId)
-        .eq('module_code', moduleCode);
+        }, {
+          onConflict: 'candidate_id,module_code'
+        });
 
       if (updateModErr) {
-        return { success: false, message: 'Registro do módulo não encontrado para este candidato.' };
+        console.error('Erro ao salvar módulo:', updateModErr);
+        return { success: false, message: 'Erro ao registrar progresso do módulo.' };
       }
 
       // Buscar dados do candidato
