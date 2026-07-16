@@ -229,9 +229,9 @@ function NavigationSidebar({
       <div className="px-5 py-6 border-b border-brand-medium/40 flex flex-col items-center justify-center bg-brand-darkest/40 gap-3">
         <div className="bg-white rounded-xl p-2 flex items-center justify-center shadow-lg border border-slate-200/10 w-full max-w-[180px]">
           <img
-            src="/LOGO_AZUL_LINHAS_AEREAS.png"
+            src="/azul_logo_2.jpg"
             alt="Azul Linhas Aéreas"
-            className="h-14 w-auto object-contain"
+            className="h-10 w-auto object-contain"
           />
         </div>
         <div className="text-center">
@@ -1849,9 +1849,9 @@ function LoginScreen() {
         <div className="flex flex-col items-center gap-3">
           <div className="bg-white rounded-2xl p-4 flex items-center justify-center shadow-lg shadow-sky-500/5 border border-slate-200/10 w-full max-w-[220px]">
             <img
-              src="/LOGO_AZUL_LINHAS_AEREAS.png"
+              src="/azul_logo_2.jpg"
               alt="Azul Linhas Aéreas"
-              className="h-20 w-auto object-contain"
+              className="h-14 w-auto object-contain"
             />
           </div>
           <div className="text-center mt-2">
