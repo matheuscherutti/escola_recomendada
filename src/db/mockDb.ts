@@ -1,4 +1,4 @@
-// Banco de dados simulado usando LocalStorage
+import { supabase } from './supabaseClient';
 
 export type UserRole = 'admin' | 'school_admin';
 export type CandidateStatus = 'pending_validation' | 'rejected' | 'in_progress' | 'completed';
@@ -81,7 +81,7 @@ export interface Notification {
   readAt?: string;
 }
 
-// Dados mockados iniciais
+// Dados mockados iniciais para Seeding
 const INITIAL_USERS: User[] = [
   { id: 'usr-admin', email: 'admin@empresa.com', name: 'Admin Geral (Minha Empresa)', role: 'admin', password: 'crpazul1234*' },
   { id: 'usr-alfa', email: 'contato@escolaalfa.com.br', name: 'Renato Silva', role: 'school_admin', schoolId: 'sch-alfa', password: 'crpazul1234*' },
@@ -135,7 +135,6 @@ const INITIAL_CANDIDATES: Candidate[] = [
 ];
 
 const INITIAL_MODULE_PROGRESS: CandidateModuleProgress[] = [
-  // Módulos do Roberto (Concluído)
   {
     id: 'mod-1',
     candidateId: 'cand-1',
@@ -172,7 +171,6 @@ const INITIAL_MODULE_PROGRESS: CandidateModuleProgress[] = [
     updatedBy: 'usr-alfa',
     updatedAt: '2026-07-12T16:45:00Z'
   },
-  // Módulos da Mariana (Em andamento: Teórico Concluído, Simulador aguardando Admin, Voo Pendente)
   {
     id: 'mod-4',
     candidateId: 'cand-2',
@@ -308,74 +306,288 @@ const INITIAL_NOTIFICATIONS: Notification[] = [
   }
 ];
 
-// Helper para ler/gravar do LocalStorage
-const getStorageItem = <T>(key: string, defaultValue: T): T => {
-  const data = localStorage.getItem(key);
-  if (!data) {
-    localStorage.setItem(key, JSON.stringify(defaultValue));
-    return defaultValue;
-  }
-  return JSON.parse(data) as T;
-};
+// Mappers para converter entre CamelCase e SnakeCase
+const mapUserToTS = (row: any): User => ({
+  id: row.id,
+  email: row.email,
+  name: row.name,
+  role: row.role as UserRole,
+  password: row.password,
+  schoolId: row.school_id || undefined
+});
 
-const setStorageItem = <T>(key: string, value: T): void => {
-  localStorage.setItem(key, JSON.stringify(value));
-};
+const mapUserToDb = (u: User) => ({
+  id: u.id,
+  email: u.email,
+  name: u.name,
+  role: u.role,
+  password: u.password || null,
+  school_id: u.schoolId || null
+});
 
+const mapSchoolToTS = (row: any): School => ({
+  id: row.id,
+  name: row.name,
+  cnpj: row.cnpj || undefined,
+  active: row.active,
+  contactName: row.contact_name,
+  email: row.email,
+  phone: row.phone
+});
+
+const mapSchoolToDb = (s: School) => ({
+  id: s.id,
+  name: s.name,
+  cnpj: s.cnpj || null,
+  active: s.active,
+  contact_name: s.contactName,
+  email: s.email,
+  phone: s.phone
+});
+
+const mapCandidateToTS = (row: any): Candidate => ({
+  id: row.id,
+  re: row.re,
+  name: row.name,
+  anac: row.anac,
+  schoolId: row.school_id,
+  status: row.status as CandidateStatus,
+  selectionStatus: row.selection_status as SelectionStatus,
+  gupyStatus: row.gupy_status as GupyStatus || undefined,
+  validatedBy: row.validated_by || undefined,
+  validatedAt: row.validated_at || undefined,
+  createdAt: row.created_at,
+  updatedAt: row.updated_at
+});
+
+const mapCandidateToDb = (c: Candidate) => ({
+  id: c.id,
+  re: c.re,
+  name: c.name,
+  anac: c.anac,
+  school_id: c.schoolId,
+  status: c.status,
+  selection_status: c.selectionStatus,
+  gupy_status: c.gupyStatus || null,
+  validated_by: c.validatedBy || null,
+  validated_at: c.validatedAt || null,
+  created_at: c.createdAt,
+  updated_at: c.updatedAt
+});
+
+const mapModuleToTS = (row: any): CandidateModuleProgress => ({
+  id: row.id,
+  candidateId: row.candidate_id,
+  moduleCode: row.module_code as ModuleCode,
+  status: row.status as ModuleStatus,
+  completionDate: row.completion_date || undefined,
+  schoolId: row.school_id || undefined,
+  certificateUrl: row.certificate_url || undefined,
+  classSheets: row.class_sheets || undefined,
+  uploadedAt: row.uploaded_at || undefined,
+  updatedBy: row.updated_by || undefined,
+  updatedAt: row.updated_at
+});
+
+const mapModuleToDb = (m: CandidateModuleProgress) => ({
+  id: m.id,
+  candidate_id: m.candidateId,
+  module_code: m.moduleCode,
+  status: m.status,
+  completion_date: m.completionDate || null,
+  school_id: m.schoolId || null,
+  certificate_url: m.certificateUrl || null,
+  class_sheets: m.classSheets || null,
+  uploaded_at: m.uploadedAt || null,
+  updated_by: m.updatedBy || null,
+  updated_at: m.updatedAt
+});
+
+const mapLogToTS = (row: any): AuditLog => ({
+  id: row.id,
+  createdAt: row.created_at,
+  userId: row.user_id || undefined,
+  userName: row.user_name || undefined,
+  candidateId: row.candidate_id,
+  candidateName: row.candidate_name,
+  changedField: row.changed_field,
+  oldValue: row.old_value,
+  newValue: row.new_value
+});
+
+const mapLogToDb = (l: AuditLog) => ({
+  id: l.id,
+  created_at: l.createdAt,
+  user_id: l.userId || null,
+  user_name: l.userName || null,
+  candidate_id: l.candidateId,
+  candidate_name: l.candidateName,
+  changed_field: l.changedField,
+  old_value: l.oldValue,
+  new_value: l.newValue
+});
+
+const mapNotificationToTS = (row: any): Notification => ({
+  id: row.id,
+  recipientUserId: row.recipient_user_id || undefined,
+  recipientSchoolId: row.recipient_school_id || undefined,
+  recipientRole: row.recipient_role || undefined,
+  title: row.title,
+  message: row.message,
+  type: row.type as any,
+  candidateId: row.candidate_id || undefined,
+  isRead: row.is_read,
+  createdAt: row.created_at,
+  readAt: row.read_at || undefined
+});
+
+const mapNotificationToDb = (n: Notification) => ({
+  id: n.id,
+  recipient_user_id: n.recipientUserId || null,
+  recipient_school_id: n.recipientSchoolId || null,
+  recipient_role: n.recipientRole || null,
+  title: n.title,
+  message: n.message,
+  type: n.type,
+  candidate_id: n.candidateId || null,
+  is_read: n.isRead,
+  created_at: n.createdAt,
+  read_at: n.readAt || null
+});
+
+// Camada de Banco de Dados Assíncrona com Supabase
 export const mockDb = {
-  getUsers: (): User[] => {
-    const list = getStorageItem<User[]>('db_users', INITIAL_USERS);
-    let changed = false;
-    const migrated = list.map((u) => {
-      if (!u.password || u.password === 'Azul1234*') {
-        u.password = 'crpazul1234*';
-        changed = true;
-      }
-      return u;
-    });
-    if (changed) {
-      setStorageItem('db_users', migrated);
+  getUsers: async (): Promise<User[]> => {
+    const { data, error } = await supabase.from('users').select('*');
+    if (error) {
+      console.error('Erro ao ler usuários:', error);
+      throw error;
     }
-    return migrated;
+    return data.map(mapUserToTS);
   },
-  setUsers: (data: User[]): void => setStorageItem('db_users', data),
-  updateUserPassword: (userId: string, newPass: string): void => {
-    const list = mockDb.getUsers();
-    const updated = list.map((u) => u.id === userId ? { ...u, password: newPass } : u);
-    mockDb.setUsers(updated);
-  },
-  getSchools: (): School[] => getStorageItem('db_schools', INITIAL_SCHOOLS),
-  setSchools: (data: School[]): void => setStorageItem('db_schools', data),
-  getCandidates: (): Candidate[] => {
-    const list = getStorageItem<any[]>('db_candidates', INITIAL_CANDIDATES);
-    let changed = false;
-    const migrated = list.map((c) => {
-      if (c.selectionStatus === 'not_called' || !c.selectionStatus) {
-        c.selectionStatus = 'finalized';
-        changed = true;
-      }
-      return c;
-    });
-    if (changed) {
-      setStorageItem('db_candidates', migrated);
+  setUsers: async (data: User[]): Promise<void> => {
+    const { error } = await supabase.from('users').upsert(data.map(mapUserToDb));
+    if (error) {
+      console.error('Erro ao salvar usuários:', error);
+      throw error;
     }
-    return migrated as Candidate[];
   },
-  setCandidates: (data: Candidate[]): void => setStorageItem('db_candidates', data),
-  getModuleProgress: (): CandidateModuleProgress[] => getStorageItem('db_modules', INITIAL_MODULE_PROGRESS),
-  setModuleProgress: (data: CandidateModuleProgress[]): void => setStorageItem('db_modules', data),
-  getAuditLogs: (): AuditLog[] => getStorageItem('db_logs', INITIAL_LOGS),
-  setAuditLogs: (data: AuditLog[]): void => setStorageItem('db_logs', data),
-  getNotifications: (): Notification[] => getStorageItem('db_notifications', INITIAL_NOTIFICATIONS),
-  setNotifications: (data: Notification[]): void => setStorageItem('db_notifications', data),
-  
-  resetDatabase: (): void => {
-    localStorage.removeItem('db_users');
-    localStorage.removeItem('db_schools');
-    localStorage.removeItem('db_candidates');
-    localStorage.removeItem('db_modules');
-    localStorage.removeItem('db_logs');
-    localStorage.removeItem('db_notifications');
-    window.location.reload();
+  updateUserPassword: async (userId: string, newPass: string): Promise<void> => {
+    const { error } = await supabase.from('users').update({ password: newPass }).eq('id', userId);
+    if (error) {
+      console.error('Erro ao atualizar senha:', error);
+      throw error;
+    }
+  },
+  getSchools: async (): Promise<School[]> => {
+    const { data, error } = await supabase.from('schools').select('*');
+    if (error) {
+      console.error('Erro ao ler escolas:', error);
+      throw error;
+    }
+    return data.map(mapSchoolToTS);
+  },
+  setSchools: async (data: School[]): Promise<void> => {
+    const { error } = await supabase.from('schools').upsert(data.map(mapSchoolToDb));
+    if (error) {
+      console.error('Erro ao salvar escolas:', error);
+      throw error;
+    }
+  },
+  getCandidates: async (): Promise<Candidate[]> => {
+    const { data, error } = await supabase.from('candidates').select('*');
+    if (error) {
+      console.error('Erro ao ler candidatos:', error);
+      throw error;
+    }
+    return data.map(mapCandidateToTS);
+  },
+  setCandidates: async (data: Candidate[]): Promise<void> => {
+    const { error } = await supabase.from('candidates').upsert(data.map(mapCandidateToDb));
+    if (error) {
+      console.error('Erro ao salvar candidatos:', error);
+      throw error;
+    }
+  },
+  getModuleProgress: async (): Promise<CandidateModuleProgress[]> => {
+    const { data, error } = await supabase.from('candidate_module_progress').select('*');
+    if (error) {
+      console.error('Erro ao ler progresso de módulos:', error);
+      throw error;
+    }
+    return data.map(mapModuleToTS);
+  },
+  setModuleProgress: async (data: CandidateModuleProgress[]): Promise<void> => {
+    const { error } = await supabase.from('candidate_module_progress').upsert(data.map(mapModuleToDb));
+    if (error) {
+      console.error('Erro ao salvar progresso de módulos:', error);
+      throw error;
+    }
+  },
+  getAuditLogs: async (): Promise<AuditLog[]> => {
+    const { data, error } = await supabase.from('audit_logs').select('*').order('created_at', { ascending: false });
+    if (error) {
+      console.error('Erro ao ler logs de auditoria:', error);
+      throw error;
+    }
+    return data.map(mapLogToTS);
+  },
+  setAuditLogs: async (data: AuditLog[]): Promise<void> => {
+    const { error } = await supabase.from('audit_logs').upsert(data.map(mapLogToDb));
+    if (error) {
+      console.error('Erro ao salvar logs de auditoria:', error);
+      throw error;
+    }
+  },
+  getNotifications: async (): Promise<Notification[]> => {
+    const { data, error } = await supabase.from('notifications').select('*').order('created_at', { ascending: false });
+    if (error) {
+      console.error('Erro ao ler notificações:', error);
+      throw error;
+    }
+    return data.map(mapNotificationToTS);
+  },
+  setNotifications: async (data: Notification[]): Promise<void> => {
+    const { error } = await supabase.from('notifications').upsert(data.map(mapNotificationToDb));
+    if (error) {
+      console.error('Erro ao salvar notificações:', error);
+      throw error;
+    }
+  },
+  resetDatabase: async (): Promise<void> => {
+    try {
+      // Deletar na ordem correta das chaves estrangeiras
+      await supabase.from('notifications').delete().neq('id', '');
+      await supabase.from('audit_logs').delete().neq('id', '');
+      await supabase.from('candidate_module_progress').delete().neq('id', '');
+      await supabase.from('candidates').delete().neq('id', '');
+      await supabase.from('users').delete().neq('id', '');
+      await supabase.from('schools').delete().neq('id', '');
+
+      // Seed de dados iniciais
+      const { error: errorSchools } = await supabase.from('schools').insert(INITIAL_SCHOOLS.map(mapSchoolToDb));
+      if (errorSchools) throw errorSchools;
+
+      const { error: errorUsers } = await supabase.from('users').insert(INITIAL_USERS.map(mapUserToDb));
+      if (errorUsers) throw errorUsers;
+
+      const { error: errorCandidates } = await supabase.from('candidates').insert(INITIAL_CANDIDATES.map(mapCandidateToDb));
+      if (errorCandidates) throw errorCandidates;
+
+      const { error: errorModules } = await supabase.from('candidate_module_progress').insert(INITIAL_MODULE_PROGRESS.map(mapModuleToDb));
+      if (errorModules) throw errorModules;
+
+      const { error: errorLogs } = await supabase.from('audit_logs').insert(INITIAL_LOGS.map(mapLogToDb));
+      if (errorLogs) throw errorLogs;
+
+      const { error: errorNotifications } = await supabase.from('notifications').insert(INITIAL_NOTIFICATIONS.map(mapNotificationToDb));
+      if (errorNotifications) throw errorNotifications;
+
+      console.log('Banco de dados Supabase resetado e semeado com sucesso!');
+      window.location.reload();
+    } catch (err) {
+      console.error('Erro ao resetar o banco de dados:', err);
+      alert('Erro ao resetar o banco de dados. Verifique o console.');
+    }
   }
 };

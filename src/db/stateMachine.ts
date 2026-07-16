@@ -1,5 +1,5 @@
-import { mockDb } from './mockDb';
-import type { Candidate, CandidateModuleProgress, AuditLog, Notification, CandidateStatus, SelectionStatus, ModuleCode, User, ModuleStatus, GupyStatus } from './mockDb';
+import { supabase } from './supabaseClient';
+import type { Notification, CandidateStatus, SelectionStatus, ModuleCode, User, ModuleStatus, GupyStatus } from './mockDb';
 
 // Função auxiliar para gerar IDs aleatórios
 const generateId = () => Math.random().toString(36).substring(2, 9);
@@ -27,171 +27,214 @@ export const getCandidateStatusLabel = (status: CandidateStatus): string => {
 
 export const stateMachine = {
   // 1. Cadastrar candidato (Escola ou Admin)
-  createCandidate: (
+  createCandidate: async (
     re: string,
     name: string,
     anac: string,
     schoolId: string,
     currentUser: User
-  ): { success: boolean; message: string } => {
-    const candidates = mockDb.getCandidates();
+  ): Promise<{ success: boolean; message: string }> => {
+    try {
+      // Validações de Unicidade
+      const { data: reCheck, error: reCheckErr } = await supabase.from('candidates').select('id').eq('re', re).limit(1);
+      if (reCheckErr) throw reCheckErr;
+      if (reCheck && reCheck.length > 0) {
+        return { success: false, message: `Já existe um candidato cadastrado com o RE: ${re}` };
+      }
 
-    // Validações
-    if (candidates.some(c => c.re === re)) {
-      return { success: false, message: `Já existe um candidato cadastrado com o RE: ${re}` };
+      const { data: anacCheck, error: anacCheckErr } = await supabase.from('candidates').select('id').eq('anac', anac).limit(1);
+      if (anacCheckErr) throw anacCheckErr;
+      if (anacCheck && anacCheck.length > 0) {
+        return { success: false, message: `Já existe um candidato cadastrado com a licença ANAC: ${anac}` };
+      }
+
+      const candId = `cand-${generateId()}`;
+      const timestamp = new Date().toISOString();
+
+      // Grava Candidato
+      const { error: candErr } = await supabase.from('candidates').insert({
+        id: candId,
+        re,
+        name,
+        anac,
+        school_id: schoolId,
+        status: 'pending_validation',
+        selection_status: 'finalized',
+        created_at: timestamp,
+        updated_at: timestamp
+      });
+      if (candErr) throw candErr;
+
+      // Grava Log de Auditoria
+      const { error: logErr } = await supabase.from('audit_logs').insert({
+        id: `log-${generateId()}`,
+        created_at: timestamp,
+        user_id: currentUser.id,
+        user_name: currentUser.name,
+        candidate_id: candId,
+        candidate_name: name,
+        changed_field: 'Cadastro',
+        old_value: '-',
+        new_value: `Criado no sistema por ${currentUser.name}`
+      });
+      if (logErr) throw logErr;
+
+      // Buscar nome da Escola
+      const { data: school, error: schoolErr } = await supabase.from('schools').select('name').eq('id', schoolId).single();
+      if (schoolErr) console.warn('Erro ao ler nome da escola para notificação:', schoolErr);
+      const schoolName = school?.name || 'Escola Parceira';
+
+      // Grava Notificação para o Admin
+      const newNotification: Notification = {
+        id: `not-${generateId()}`,
+        recipientRole: 'admin',
+        title: 'Novo candidato pendente de validação',
+        message: `A escola ${schoolName} cadastrou o candidato ${name} (RE: ${re}, ANAC: ${anac}).`,
+        type: 'pending_validation',
+        candidateId: candId,
+        isRead: false,
+        createdAt: timestamp
+      };
+
+      const { error: notifErr } = await supabase.from('notifications').insert({
+        id: newNotification.id,
+        recipient_role: newNotification.recipientRole,
+        title: newNotification.title,
+        message: newNotification.message,
+        type: newNotification.type,
+        candidate_id: newNotification.candidateId,
+        is_read: newNotification.isRead,
+        created_at: newNotification.createdAt
+      });
+      if (notifErr) throw notifErr;
+
+      // Disparar evento nativo do browser para alertar a UI em tempo real
+      window.dispatchEvent(new CustomEvent('new_notification', { detail: newNotification }));
+
+      return { success: true, message: 'Candidato enviado com sucesso! Aguardando validação.' };
+    } catch (err: any) {
+      console.error('Erro no createCandidate:', err);
+      return { success: false, message: `Erro ao cadastrar candidato: ${err.message}` };
     }
-    if (candidates.some(c => c.anac === anac)) {
-      return { success: false, message: `Já existe um candidato cadastrado com a licença ANAC: ${anac}` };
-    }
-
-    const newCandidate: Candidate = {
-      id: `cand-${generateId()}`,
-      re,
-      name,
-      anac,
-      schoolId,
-      status: 'pending_validation',
-      selectionStatus: 'finalized',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    };
-
-    // Grava Candidato
-    mockDb.setCandidates([...candidates, newCandidate]);
-
-    // Grava Log de Auditoria
-    const logs = mockDb.getAuditLogs();
-    const newLog: AuditLog = {
-      id: `log-${generateId()}`,
-      createdAt: new Date().toISOString(),
-      userId: currentUser.id,
-      userName: currentUser.name,
-      candidateId: newCandidate.id,
-      candidateName: newCandidate.name,
-      changedField: 'Cadastro',
-      oldValue: '-',
-      newValue: `Criado no sistema por ${currentUser.name}`
-    };
-    mockDb.setAuditLogs([newLog, ...logs]);
-
-    // Envia Notificação para o Admin
-    const schools = mockDb.getSchools();
-    const schoolName = schools.find(s => s.id === schoolId)?.name || 'Escola Parceira';
-    const notifications = mockDb.getNotifications();
-    const newNotification: Notification = {
-      id: `not-${generateId()}`,
-      recipientRole: 'admin',
-      title: 'Novo candidato pendente de validação',
-      message: `A escola ${schoolName} cadastrou o candidato ${name} (RE: ${re}, ANAC: ${anac}).`,
-      type: 'pending_validation',
-      candidateId: newCandidate.id,
-      isRead: false,
-      createdAt: new Date().toISOString()
-    };
-    mockDb.setNotifications([newNotification, ...notifications]);
-
-    // Disparar evento nativo do browser para alertar a UI em tempo real
-    window.dispatchEvent(new CustomEvent('new_notification', { detail: newNotification }));
-
-    return { success: true, message: 'Candidato enviado com sucesso! Aguardando validação.' };
   },
 
   // 2. Validação do Funcionário (Aprovar / Recusar - Apenas Admin)
-  validateCandidate: (
+  validateCandidate: async (
     candidateId: string,
     approve: boolean,
     currentUser: User
-  ): { success: boolean; message: string } => {
+  ): Promise<{ success: boolean; message: string }> => {
     if (currentUser.role !== 'admin') {
       return { success: false, message: 'Apenas administradores podem validar candidatos.' };
     }
 
-    const candidates = mockDb.getCandidates();
-    const candidateIndex = candidates.findIndex(c => c.id === candidateId);
+    try {
+      const { data: candidate, error: candErr } = await supabase
+        .from('candidates')
+        .select('*')
+        .eq('id', candidateId)
+        .single();
 
-    if (candidateIndex === -1) {
-      return { success: false, message: 'Candidato não encontrado.' };
+      if (candErr || !candidate) {
+        return { success: false, message: 'Candidato não encontrado.' };
+      }
+
+      const oldStatus = candidate.status;
+      const newStatus: CandidateStatus = approve ? 'in_progress' : 'rejected';
+      const timestamp = new Date().toISOString();
+
+      // Atualiza Candidato
+      const { error: updateErr } = await supabase
+        .from('candidates')
+        .update({
+          status: newStatus,
+          validated_by: currentUser.id,
+          validated_at: timestamp,
+          updated_at: timestamp
+        })
+        .eq('id', candidateId);
+
+      if (updateErr) throw updateErr;
+
+      // Grava Log de Auditoria
+      const { error: logErr } = await supabase.from('audit_logs').insert({
+        id: `log-${generateId()}`,
+        created_at: timestamp,
+        user_id: currentUser.id,
+        user_name: currentUser.name,
+        candidate_id: candidate.id,
+        candidate_name: candidate.name,
+        changed_field: 'Validação',
+        old_value: getCandidateStatusLabel(oldStatus as CandidateStatus),
+        new_value: getCandidateStatusLabel(newStatus)
+      });
+      if (logErr) throw logErr;
+
+      // Se aprovado, instancia os 3 módulos pendentes
+      if (approve) {
+        const newModules = [
+          {
+            id: `mod-${generateId()}`,
+            candidate_id: candidate.id,
+            module_code: 'TEORICO',
+            status: 'pending',
+            updated_at: timestamp
+          },
+          {
+            id: `mod-${generateId()}`,
+            candidate_id: candidate.id,
+            module_code: 'SIMULADOR',
+            status: 'pending',
+            updated_at: timestamp
+          },
+          {
+            id: `mod-${generateId()}`,
+            candidate_id: candidate.id,
+            module_code: 'VOO',
+            status: 'pending',
+            updated_at: timestamp
+          }
+        ];
+        const { error: modulesErr } = await supabase.from('candidate_module_progress').insert(newModules);
+        if (modulesErr) throw modulesErr;
+      }
+
+      // Envia Notificação para a Escola de origem
+      const resultText = approve ? 'aprovado' : 'recusado';
+      const newNotification: Notification = {
+        id: `not-${generateId()}`,
+        recipientSchoolId: candidate.school_id,
+        title: `Candidato ${resultText}`,
+        message: `O candidato ${candidate.name} (RE: ${candidate.re}) foi ${resultText} pelo Administrador da Empresa.`,
+        type: 'validation_result',
+        candidateId: candidate.id,
+        isRead: false,
+        createdAt: timestamp
+      };
+
+      const { error: notifErr } = await supabase.from('notifications').insert({
+        id: newNotification.id,
+        recipient_school_id: newNotification.recipientSchoolId,
+        title: newNotification.title,
+        message: newNotification.message,
+        type: newNotification.type,
+        candidate_id: newNotification.candidateId,
+        is_read: newNotification.isRead,
+        created_at: newNotification.createdAt
+      });
+      if (notifErr) throw notifErr;
+
+      window.dispatchEvent(new CustomEvent('new_notification', { detail: newNotification }));
+
+      return { success: true, message: `Candidato ${approve ? 'aprovado' : 'recusado'} com sucesso.` };
+    } catch (err: any) {
+      console.error('Erro no validateCandidate:', err);
+      return { success: false, message: `Erro ao validar candidato: ${err.message}` };
     }
-
-    const candidate = candidates[candidateIndex];
-    const oldStatus = candidate.status;
-    const newStatus: CandidateStatus = approve ? 'in_progress' : 'rejected';
-
-    // Atualiza Candidato
-    candidates[candidateIndex] = {
-      ...candidate,
-      status: newStatus,
-      validatedBy: currentUser.id,
-      validatedAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    };
-    mockDb.setCandidates(candidates);
-
-    // Grava Log de Auditoria
-    const logs = mockDb.getAuditLogs();
-    const newLog: AuditLog = {
-      id: `log-${generateId()}`,
-      createdAt: new Date().toISOString(),
-      userId: currentUser.id,
-      userName: currentUser.name,
-      candidateId: candidate.id,
-      candidateName: candidate.name,
-      changedField: 'Validação',
-      oldValue: getCandidateStatusLabel(oldStatus),
-      newValue: getCandidateStatusLabel(newStatus)
-    };
-    mockDb.setAuditLogs([newLog, ...logs]);
-
-    // Se aprovado, instancia os 3 módulos pendentes
-    if (approve) {
-      const modules = mockDb.getModuleProgress();
-      const newModules: CandidateModuleProgress[] = [
-        {
-          id: `mod-${generateId()}`,
-          candidateId: candidate.id,
-          moduleCode: 'TEORICO',
-          status: 'pending',
-          updatedAt: new Date().toISOString()
-        },
-        {
-          id: `mod-${generateId()}`,
-          candidateId: candidate.id,
-          moduleCode: 'SIMULADOR',
-          status: 'pending',
-          updatedAt: new Date().toISOString()
-        },
-        {
-          id: `mod-${generateId()}`,
-          candidateId: candidate.id,
-          moduleCode: 'VOO',
-          status: 'pending',
-          updatedAt: new Date().toISOString()
-        }
-      ];
-      mockDb.setModuleProgress([...modules, ...newModules]);
-    }
-
-    // Envia Notificação para a Escola de origem
-    const notifications = mockDb.getNotifications();
-    const resultText = approve ? 'aprovado' : 'recusado';
-    const newNotification: Notification = {
-      id: `not-${generateId()}`,
-      recipientSchoolId: candidate.schoolId,
-      title: `Candidato ${resultText}`,
-      message: `O candidato ${candidate.name} (RE: ${candidate.re}) foi ${resultText} pelo Administrador da Empresa.`,
-      type: 'validation_result',
-      candidateId: candidate.id,
-      isRead: false,
-      createdAt: new Date().toISOString()
-    };
-    mockDb.setNotifications([newNotification, ...notifications]);
-    window.dispatchEvent(new CustomEvent('new_notification', { detail: newNotification }));
-
-    return { success: true, message: `Candidato ${approve ? 'aprovado' : 'recusado'} com sucesso.` };
   },
 
   // 3. Atualizar Módulo de Treinamento (Anexar Certificado - Escola)
-  completeModule: (
+  completeModule: async (
     candidateId: string,
     moduleCode: ModuleCode,
     completionDate: string,
@@ -199,201 +242,263 @@ export const stateMachine = {
     certificateName: string,
     classSheets: string[],
     currentUser: User
-  ): { success: boolean; message: string } => {
-    const modules = mockDb.getModuleProgress();
-    const modIndex = modules.findIndex(m => m.candidateId === candidateId && m.moduleCode === moduleCode);
+  ): Promise<{ success: boolean; message: string }> => {
+    try {
+      const timestamp = new Date().toISOString();
 
-    if (modIndex === -1) {
-      return { success: false, message: 'Registro do módulo não encontrado para este candidato.' };
-    }
+      // Atualiza o progresso do módulo
+      const { error: updateModErr } = await supabase
+        .from('candidate_module_progress')
+        .update({
+          status: 'completed',
+          completion_date: completionDate,
+          school_id: schoolId,
+          certificate_url: certificateName,
+          class_sheets: classSheets,
+          uploaded_at: timestamp,
+          updated_by: currentUser.id,
+          updated_at: timestamp
+        })
+        .eq('candidate_id', candidateId)
+        .eq('module_code', moduleCode);
 
-    // Atualiza o progresso do módulo
-    modules[modIndex] = {
-      ...modules[modIndex],
-      status: 'completed',
-      completionDate,
-      schoolId,
-      certificateUrl: certificateName,
-      classSheets,
-      uploadedAt: new Date().toISOString(),
-      updatedBy: currentUser.id,
-      updatedAt: new Date().toISOString()
-    };
-    mockDb.setModuleProgress(modules);
+      if (updateModErr) {
+        return { success: false, message: 'Registro do módulo não encontrado para este candidato.' };
+      }
 
-    const candidates = mockDb.getCandidates();
-    const candidateIndex = candidates.findIndex(c => c.id === candidateId);
-    const candidate = candidates[candidateIndex];
+      // Buscar dados do candidato
+      const { data: candidate, error: candErr } = await supabase
+        .from('candidates')
+        .select('*')
+        .eq('id', candidateId)
+        .single();
 
-    // Grava Log de Auditoria
-    const logs = mockDb.getAuditLogs();
-    const newLog: AuditLog = {
-      id: `log-${generateId()}`,
-      createdAt: new Date().toISOString(),
-      userId: currentUser.id,
-      userName: currentUser.name,
-      candidateId: candidateId,
-      candidateName: candidate?.name || 'Candidato',
-      changedField: `Módulo ${moduleCode.charAt(0) + moduleCode.slice(1).toLowerCase()}`,
-      oldValue: 'Pendente',
-      newValue: `Concluído (${certificateName})`
-    };
-    mockDb.setAuditLogs([newLog, ...logs]);
+      if (candErr || !candidate) {
+        return { success: false, message: 'Candidato não encontrado.' };
+      }
 
-    // Valida se todos os 3 módulos do candidato estão concluídos
-    const candidateModules = modules.filter(m => m.candidateId === candidateId);
-    const completedAll = candidateModules.length === 3 && candidateModules.every(m => m.status === 'completed');
-
-    if (completedAll && candidate && candidate.status !== 'completed') {
-      // Transição automática para concluído
-      candidates[candidateIndex] = {
-        ...candidate,
-        status: 'completed',
-        selectionStatus: 'finalized', // Padrão automático inicial
-        updatedAt: new Date().toISOString()
-      };
-      mockDb.setCandidates(candidates);
-
-      // Log automático do sistema
-      const autoLog: AuditLog = {
+      // Grava Log de Auditoria
+      const { error: logErr } = await supabase.from('audit_logs').insert({
         id: `log-${generateId()}`,
-        createdAt: new Date().toISOString(),
-        userName: 'Sistema',
-        candidateId: candidate.id,
-        candidateName: candidate.name,
-        changedField: 'Status Geral',
-        oldValue: 'Em Andamento',
-        newValue: 'Curso Concluído (Gatilho Automático)'
-      };
-      mockDb.setAuditLogs([autoLog, ...mockDb.getAuditLogs()]);
+        created_at: timestamp,
+        user_id: currentUser.id,
+        user_name: currentUser.name,
+        candidate_id: candidateId,
+        candidate_name: candidate.name,
+        changed_field: `Módulo ${moduleCode.charAt(0) + moduleCode.slice(1).toLowerCase()}`,
+        old_value: 'Pendente',
+        new_value: `Concluído (${certificateName})`
+      });
+      if (logErr) throw logErr;
 
-      // Notificação para o Admin (Conclusão total)
-      const notifications = mockDb.getNotifications();
-      const completionNotification: Notification = {
-        id: `not-${generateId()}`,
-        recipientRole: 'admin',
-        title: 'Treinamento Concluído',
-        message: `O candidato ${candidate.name} concluiu todos os 3 módulos obrigatórios de treinamento.`,
-        type: 'course_completed',
-        candidateId: candidate.id,
-        isRead: false,
-        createdAt: new Date().toISOString()
-      };
-      mockDb.setNotifications([completionNotification, ...notifications]);
-      window.dispatchEvent(new CustomEvent('new_notification', { detail: completionNotification }));
+      // Valida se todos os 3 módulos do candidato estão concluídos
+      const { data: candidateModules, error: countErr } = await supabase
+        .from('candidate_module_progress')
+        .select('status')
+        .eq('candidate_id', candidateId);
+
+      if (countErr) throw countErr;
+
+      const completedAll = candidateModules && candidateModules.length === 3 && candidateModules.every(m => m.status === 'completed');
+
+      if (completedAll && candidate.status !== 'completed') {
+        // Transição automática para concluído
+        const { error: updateCandErr } = await supabase
+          .from('candidates')
+          .update({
+            status: 'completed',
+            selection_status: 'finalized', // Padrão automático inicial
+            updated_at: timestamp
+          })
+          .eq('id', candidateId);
+        if (updateCandErr) throw updateCandErr;
+
+        // Log automático do sistema
+        const { error: autoLogErr } = await supabase.from('audit_logs').insert({
+          id: `log-${generateId()}`,
+          created_at: timestamp,
+          user_name: 'Sistema',
+          candidate_id: candidate.id,
+          candidate_name: candidate.name,
+          changed_field: 'Status Geral',
+          old_value: 'Em Andamento',
+          new_value: 'Curso Concluído (Gatilho Automático)'
+        });
+        if (autoLogErr) throw autoLogErr;
+
+        // Notificação para o Admin (Conclusão total)
+        const newNotification: Notification = {
+          id: `not-${generateId()}`,
+          recipientRole: 'admin',
+          title: 'Treinamento Concluído',
+          message: `O candidato ${candidate.name} concluiu todos os 3 módulos obrigatórios de treinamento.`,
+          type: 'course_completed',
+          candidateId: candidate.id,
+          isRead: false,
+          createdAt: timestamp
+        };
+
+        const { error: notifErr } = await supabase.from('notifications').insert({
+          id: newNotification.id,
+          recipient_role: newNotification.recipientRole,
+          title: newNotification.title,
+          message: newNotification.message,
+          type: newNotification.type,
+          candidate_id: newNotification.candidateId,
+          is_read: newNotification.isRead,
+          created_at: newNotification.createdAt
+        });
+        if (notifErr) throw notifErr;
+
+        window.dispatchEvent(new CustomEvent('new_notification', { detail: newNotification }));
+      }
+
+      return { success: true, message: `Módulo ${moduleCode} atualizado com sucesso.` };
+    } catch (err: any) {
+      console.error('Erro no completeModule:', err);
+      return { success: false, message: `Erro ao atualizar módulo: ${err.message}` };
     }
-
-    return { success: true, message: `Módulo ${moduleCode} atualizado com sucesso.` };
   },
 
   // 4. Alterar Status do Processo Seletivo (Apenas Admin)
-  updateSelectionStatus: (
+  updateSelectionStatus: async (
     candidateId: string,
     newStatus: SelectionStatus,
     currentUser: User
-  ): { success: boolean; message: string } => {
+  ): Promise<{ success: boolean; message: string }> => {
     if (currentUser.role !== 'admin') {
       return { success: false, message: 'Apenas administradores podem atualizar o processo seletivo.' };
     }
 
-    const candidates = mockDb.getCandidates();
-    const candidateIndex = candidates.findIndex(c => c.id === candidateId);
+    try {
+      const { data: candidate, error: candErr } = await supabase
+        .from('candidates')
+        .select('*')
+        .eq('id', candidateId)
+        .single();
 
-    if (candidateIndex === -1) {
-      return { success: false, message: 'Candidato não encontrado.' };
+      if (candErr || !candidate) {
+        return { success: false, message: 'Candidato não encontrado.' };
+      }
+
+      if (candidate.status !== 'completed') {
+        return { success: false, message: 'Apenas candidatos com o treinamento concluído podem entrar no processo seletivo.' };
+      }
+
+      const oldStatus = candidate.selection_status;
+      const timestamp = new Date().toISOString();
+
+      // Atualiza Status do Processo Seletivo
+      const { error: updateErr } = await supabase
+        .from('candidates')
+        .update({
+          selection_status: newStatus,
+          updated_at: timestamp
+        })
+        .eq('id', candidateId);
+
+      if (updateErr) throw updateErr;
+
+      // Grava Log de Auditoria
+      const { error: logErr } = await supabase.from('audit_logs').insert({
+        id: `log-${generateId()}`,
+        created_at: timestamp,
+        user_id: currentUser.id,
+        user_name: currentUser.name,
+        candidate_id: candidate.id,
+        candidate_name: candidate.name,
+        changed_field: 'Status Seleção',
+        old_value: getSelectionStatusLabel(oldStatus as SelectionStatus),
+        new_value: getSelectionStatusLabel(newStatus)
+      });
+      if (logErr) throw logErr;
+
+      // Envia Notificação para a Escola em tempo real
+      const newNotification: Notification = {
+        id: `not-${generateId()}`,
+        recipientSchoolId: candidate.school_id,
+        title: 'Status Processo Seletivo',
+        message: `O status do processo seletivo do candidato ${candidate.name} foi atualizado para: "${getSelectionStatusLabel(newStatus)}".`,
+        type: 'selection_status_update',
+        candidateId: candidate.id,
+        isRead: false,
+        createdAt: timestamp
+      };
+
+      const { error: notifErr } = await supabase.from('notifications').insert({
+        id: newNotification.id,
+        recipient_school_id: newNotification.recipientSchoolId,
+        title: newNotification.title,
+        message: newNotification.message,
+        type: newNotification.type,
+        candidate_id: newNotification.candidateId,
+        is_read: newNotification.isRead,
+        created_at: newNotification.createdAt
+      });
+      if (notifErr) throw notifErr;
+
+      window.dispatchEvent(new CustomEvent('new_notification', { detail: newNotification }));
+
+      return { success: true, message: 'Status do processo seletivo atualizado com sucesso.' };
+    } catch (err: any) {
+      console.error('Erro no updateSelectionStatus:', err);
+      return { success: false, message: `Erro ao atualizar processo seletivo: ${err.message}` };
     }
-
-    const candidate = candidates[candidateIndex];
-    const oldStatus = candidate.selectionStatus;
-
-    if (candidate.status !== 'completed') {
-      return { success: false, message: 'Apenas candidatos com o treinamento concluído podem entrar no processo seletivo.' };
-    }
-
-    // Atualiza Status do Processo Seletivo
-    candidates[candidateIndex] = {
-      ...candidate,
-      selectionStatus: newStatus,
-      updatedAt: new Date().toISOString()
-    };
-    mockDb.setCandidates(candidates);
-
-    // Grava Log de Auditoria
-    const logs = mockDb.getAuditLogs();
-    const newLog: AuditLog = {
-      id: `log-${generateId()}`,
-      createdAt: new Date().toISOString(),
-      userId: currentUser.id,
-      userName: currentUser.name,
-      candidateId: candidate.id,
-      candidateName: candidate.name,
-      changedField: 'Status Seleção',
-      oldValue: getSelectionStatusLabel(oldStatus),
-      newValue: getSelectionStatusLabel(newStatus)
-    };
-    mockDb.setAuditLogs([newLog, ...logs]);
-
-    // Envia Notificação para a Escola em tempo real
-    const notifications = mockDb.getNotifications();
-    const newNotification: Notification = {
-      id: `not-${generateId()}`,
-      recipientSchoolId: candidate.schoolId,
-      title: 'Status Processo Seletivo',
-      message: `O status do processo seletivo do candidato ${candidate.name} foi atualizado para: "${getSelectionStatusLabel(newStatus)}".`,
-      type: 'selection_status_update',
-      candidateId: candidate.id,
-      isRead: false,
-      createdAt: new Date().toISOString()
-    };
-    mockDb.setNotifications([newNotification, ...notifications]);
-    window.dispatchEvent(new CustomEvent('new_notification', { detail: newNotification }));
-
-    return { success: true, message: 'Status do processo seletivo atualizado com sucesso.' };
   },
 
-  // 4.1 Atualizar Status Gupy (Qualquer perfil ou apenas admin)
-  updateGupyStatus: (
+  // 4.1 Atualizar Status Gupy
+  updateGupyStatus: async (
     candidateId: string,
     gupyStatus: GupyStatus,
     currentUser: User
-  ): { success: boolean; message: string } => {
-    const candidates = mockDb.getCandidates();
-    const candidateIndex = candidates.findIndex(c => c.id === candidateId);
+  ): Promise<{ success: boolean; message: string }> => {
+    try {
+      const { data: candidate, error: candErr } = await supabase
+        .from('candidates')
+        .select('*')
+        .eq('id', candidateId)
+        .single();
 
-    if (candidateIndex === -1) {
-      return { success: false, message: 'Candidato não encontrado.' };
+      if (candErr || !candidate) {
+        return { success: false, message: 'Candidato não encontrado.' };
+      }
+
+      const oldGupy = candidate.gupy_status;
+      const timestamp = new Date().toISOString();
+
+      const { error: updateErr } = await supabase
+        .from('candidates')
+        .update({
+          gupy_status: gupyStatus,
+          updated_at: timestamp
+        })
+        .eq('id', candidateId);
+
+      if (updateErr) throw updateErr;
+
+      // Grava Log de Auditoria
+      const { error: logErr } = await supabase.from('audit_logs').insert({
+        id: `log-${generateId()}`,
+        created_at: timestamp,
+        user_id: currentUser.id,
+        user_name: currentUser.name,
+        candidate_id: candidate.id,
+        candidate_name: candidate.name,
+        changed_field: 'Status Gupy',
+        old_value: oldGupy === 'gupy_min' ? 'Na Gupy (com mínimos)' : oldGupy === 'gupy_no_min' ? 'Na Gupy (sem mínimos)' : oldGupy === 'not_gupy' ? 'Não está na Gupy' : 'Não Informado',
+        new_value: gupyStatus === 'gupy_min' ? 'Na Gupy (com mínimos)' : gupyStatus === 'gupy_no_min' ? 'Na Gupy (sem mínimos)' : 'Não está na Gupy'
+      });
+      if (logErr) throw logErr;
+
+      return { success: true, message: 'Status Gupy atualizado com sucesso.' };
+    } catch (err: any) {
+      console.error('Erro no updateGupyStatus:', err);
+      return { success: false, message: `Erro ao atualizar status Gupy: ${err.message}` };
     }
-
-    const candidate = candidates[candidateIndex];
-    const oldGupy = candidate.gupyStatus;
-
-    candidates[candidateIndex] = {
-      ...candidate,
-      gupyStatus,
-      updatedAt: new Date().toISOString()
-    };
-    mockDb.setCandidates(candidates);
-
-    // Grava Log de Auditoria
-    const logs = mockDb.getAuditLogs();
-    const newLog: AuditLog = {
-      id: `log-${generateId()}`,
-      createdAt: new Date().toISOString(),
-      userId: currentUser.id,
-      userName: currentUser.name,
-      candidateId: candidate.id,
-      candidateName: candidate.name,
-      changedField: 'Status Gupy',
-      oldValue: oldGupy === 'gupy_min' ? 'Na Gupy (com mínimos)' : oldGupy === 'gupy_no_min' ? 'Na Gupy (sem mínimos)' : oldGupy === 'not_gupy' ? 'Não está na Gupy' : 'Não Informado',
-      newValue: gupyStatus === 'gupy_min' ? 'Na Gupy (com mínimos)' : gupyStatus === 'gupy_no_min' ? 'Na Gupy (sem mínimos)' : 'Não está na Gupy'
-    };
-    mockDb.setAuditLogs([newLog, ...logs]);
-
-    return { success: true, message: 'Status Gupy atualizado com sucesso.' };
   },
 
   // 5. Editar ou Anular Módulo (Apenas Admin)
-  adminEditModule: (
+  adminEditModule: async (
     candidateId: string,
     moduleCode: ModuleCode,
     status: ModuleStatus,
@@ -402,177 +507,242 @@ export const stateMachine = {
     certificateName: string | undefined,
     classSheets: string[] | undefined,
     currentUser: User
-  ): { success: boolean; message: string } => {
+  ): Promise<{ success: boolean; message: string }> => {
     if (currentUser.role !== 'admin') {
       return { success: false, message: 'Apenas administradores podem editar módulos.' };
     }
 
-    const modules = mockDb.getModuleProgress();
-    const modIndex = modules.findIndex(m => m.candidateId === candidateId && m.moduleCode === moduleCode);
+    try {
+      const timestamp = new Date().toISOString();
 
-    if (modIndex === -1) {
-      return { success: false, message: 'Registro do módulo não encontrado.' };
-    }
+      // Buscar módulo atual
+      const { data: oldModule, error: oldModErr } = await supabase
+        .from('candidate_module_progress')
+        .select('*')
+        .eq('candidate_id', candidateId)
+        .eq('module_code', moduleCode)
+        .single();
 
-    const oldModule = modules[modIndex];
-
-    if (status === 'pending') {
-      // Anulação
-      modules[modIndex] = {
-        id: oldModule.id,
-        candidateId,
-        moduleCode,
-        status: 'pending',
-        updatedAt: new Date().toISOString()
-      };
-    } else {
-      // Edição
-      modules[modIndex] = {
-        ...oldModule,
-        status: 'completed',
-        completionDate,
-        schoolId,
-        certificateUrl: certificateName,
-        classSheets,
-        updatedBy: currentUser.id,
-        updatedAt: new Date().toISOString()
-      };
-    }
-
-    mockDb.setModuleProgress(modules);
-
-    const candidates = mockDb.getCandidates();
-    const candidateIndex = candidates.findIndex(c => c.id === candidateId);
-    const candidate = candidates[candidateIndex];
-
-    if (candidate) {
-      const candidateModules = modules.filter(m => m.candidateId === candidateId);
-      const completedAll = candidateModules.length === 3 && candidateModules.every(m => m.status === 'completed');
-
-      const oldStatus = candidate.status;
-      let newStatus = candidate.status;
-      let newSelectionStatus = candidate.selectionStatus;
-
-      if (completedAll && candidate.status !== 'completed') {
-        newStatus = 'completed';
-        newSelectionStatus = 'finalized';
-      } else if (!completedAll && candidate.status === 'completed') {
-        newStatus = 'in_progress';
-        newSelectionStatus = 'finalized';
+      if (oldModErr || !oldModule) {
+        return { success: false, message: 'Registro do módulo não encontrado.' };
       }
 
-      candidates[candidateIndex] = {
-        ...candidate,
-        status: newStatus,
-        selectionStatus: newSelectionStatus,
-        updatedAt: new Date().toISOString()
-      };
-      mockDb.setCandidates(candidates);
+      if (status === 'pending') {
+        // Anulação
+        const { error: updateErr } = await supabase
+          .from('candidate_module_progress')
+          .update({
+            status: 'pending',
+            completion_date: null,
+            school_id: null,
+            certificate_url: null,
+            class_sheets: null,
+            uploaded_at: null,
+            updated_by: null,
+            updated_at: timestamp
+          })
+          .eq('candidate_id', candidateId)
+          .eq('module_code', moduleCode);
+        if (updateErr) throw updateErr;
+      } else {
+        // Edição
+        const { error: updateErr } = await supabase
+          .from('candidate_module_progress')
+          .update({
+            status: 'completed',
+            completion_date: completionDate || null,
+            school_id: schoolId || null,
+            certificate_url: certificateName || null,
+            class_sheets: classSheets || null,
+            updated_by: currentUser.id,
+            updated_at: timestamp
+          })
+          .eq('candidate_id', candidateId)
+          .eq('module_code', moduleCode);
+        if (updateErr) throw updateErr;
+      }
 
-      // Logs de Auditoria
-      const logs = mockDb.getAuditLogs();
-      const newLog: AuditLog = {
-        id: `log-${generateId()}`,
-        createdAt: new Date().toISOString(),
-        userId: currentUser.id,
-        userName: currentUser.name,
-        candidateId: candidate.id,
-        candidateName: candidate.name,
-        changedField: `Módulo ${moduleCode.charAt(0) + moduleCode.slice(1).toLowerCase()}`,
-        oldValue: oldModule.status === 'completed' ? `Concluído (${oldModule.certificateUrl})` : 'Pendente',
-        newValue: status === 'pending' ? 'Pendente (Anulado)' : `Editado (${certificateName})`
-      };
+      // Buscar dados do candidato
+      const { data: candidate, error: candErr } = await supabase
+        .from('candidates')
+        .select('*')
+        .eq('id', candidateId)
+        .single();
 
-      const finalLogs = [newLog];
+      if (candErr) throw candErr;
 
-      if (oldStatus !== newStatus) {
-        const statusLog: AuditLog = {
+      if (candidate) {
+        // Obter módulos atualizados
+        const { data: candidateModules, error: countErr } = await supabase
+          .from('candidate_module_progress')
+          .select('status')
+          .eq('candidate_id', candidateId);
+
+        if (countErr) throw countErr;
+
+        const completedAll = candidateModules && candidateModules.length === 3 && candidateModules.every(m => m.status === 'completed');
+
+        const oldStatus = candidate.status;
+        let newStatus = candidate.status;
+        let newSelectionStatus = candidate.selection_status;
+
+        if (completedAll && candidate.status !== 'completed') {
+          newStatus = 'completed';
+          newSelectionStatus = 'finalized';
+        } else if (!completedAll && candidate.status === 'completed') {
+          newStatus = 'in_progress';
+          newSelectionStatus = 'finalized';
+        }
+
+        const { error: updateCandErr } = await supabase
+          .from('candidates')
+          .update({
+            status: newStatus,
+            selection_status: newSelectionStatus,
+            updated_at: timestamp
+          })
+          .eq('id', candidateId);
+        if (updateCandErr) throw updateCandErr;
+
+        // Grava Logs de Auditoria
+        const logsToInsert = [];
+
+        logsToInsert.push({
           id: `log-${generateId()}`,
-          createdAt: new Date().toISOString(),
-          userName: 'Sistema',
-          candidateId: candidate.id,
-          candidateName: candidate.name,
-          changedField: 'Status Geral',
-          oldValue: getCandidateStatusLabel(oldStatus),
-          newValue: getCandidateStatusLabel(newStatus)
-        };
-        finalLogs.push(statusLog);
+          created_at: timestamp,
+          user_id: currentUser.id,
+          user_name: currentUser.name,
+          candidate_id: candidate.id,
+          candidate_name: candidate.name,
+          changed_field: `Módulo ${moduleCode.charAt(0) + moduleCode.slice(1).toLowerCase()}`,
+          old_value: oldModule.status === 'completed' ? `Concluído (${oldModule.certificate_url})` : 'Pendente',
+          new_value: status === 'pending' ? 'Pendente (Anulado)' : `Editado (${certificateName})`
+        });
+
+        if (oldStatus !== newStatus) {
+          logsToInsert.push({
+            id: `log-${generateId()}`,
+            created_at: timestamp,
+            user_name: 'Sistema',
+            candidate_id: candidate.id,
+            candidate_name: candidate.name,
+            changed_field: 'Status Geral',
+            old_value: getCandidateStatusLabel(oldStatus as CandidateStatus),
+            new_value: getCandidateStatusLabel(newStatus as CandidateStatus)
+          });
+        }
+
+        const { error: logsErr } = await supabase.from('audit_logs').insert(logsToInsert);
+        if (logsErr) throw logsErr;
       }
 
-      mockDb.setAuditLogs([...finalLogs, ...logs]);
+      return { success: true, message: status === 'pending' ? 'Módulo anulado com sucesso.' : 'Módulo atualizado com sucesso.' };
+    } catch (err: any) {
+      console.error('Erro no adminEditModule:', err);
+      return { success: false, message: `Erro ao editar módulo: ${err.message}` };
     }
-
-    return { success: true, message: status === 'pending' ? 'Módulo anulado com sucesso.' : 'Módulo atualizado com sucesso.' };
   },
 
   // 10. Alterar senha
-  changePassword: (
+  changePassword: async (
     oldPass: string,
     newPass: string,
     currentUser: User
-  ): { success: boolean; message: string } => {
-    const users = mockDb.getUsers();
-    const user = users.find(u => u.id === currentUser.id);
-    if (!user) {
-      return { success: false, message: 'Usuário não encontrado.' };
-    }
-    if (user.password !== oldPass) {
-      return { success: false, message: 'Senha atual incorreta.' };
-    }
-    if (newPass === 'crpazul1234*') {
-      return { success: false, message: 'Você não pode usar a senha padrão como sua nova senha.' };
-    }
-    mockDb.updateUserPassword(user.id, newPass);
+  ): Promise<{ success: boolean; message: string }> => {
+    try {
+      const { data: user, error: userErr } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', currentUser.id)
+        .single();
 
-    // Auditoria
-    const logs = mockDb.getAuditLogs();
-    const newLog: AuditLog = {
-      id: `log-${generateId()}`,
-      createdAt: new Date().toISOString(),
-      userName: user.name,
-      userId: user.id,
-      candidateId: '-',
-      candidateName: 'Sistema (Segurança)',
-      changedField: 'Alteração de Senha',
-      oldValue: '********',
-      newValue: 'Senha alterada com sucesso'
-    };
-    mockDb.setAuditLogs([newLog, ...logs]);
+      if (userErr || !user) {
+        return { success: false, message: 'Usuário não encontrado.' };
+      }
+      if (user.password !== oldPass) {
+        return { success: false, message: 'Senha atual incorreta.' };
+      }
+      if (newPass === 'crpazul1234*') {
+        return { success: false, message: 'Você não pode usar a senha padrão como sua nova senha.' };
+      }
 
-    return { success: true, message: 'Senha alterada com sucesso!' };
+      // Atualiza Senha no Supabase
+      const { error: updateErr } = await supabase
+        .from('users')
+        .update({ password: newPass })
+        .eq('id', user.id);
+
+      if (updateErr) throw updateErr;
+
+      // Auditoria
+      const timestamp = new Date().toISOString();
+      const { error: logErr } = await supabase.from('audit_logs').insert({
+        id: `log-${generateId()}`,
+        created_at: timestamp,
+        user_name: user.name,
+        user_id: user.id,
+        candidate_id: '-',
+        candidate_name: 'Sistema (Segurança)',
+        changed_field: 'Alteração de Senha',
+        old_value: '********',
+        new_value: 'Senha alterada com sucesso'
+      });
+      if (logErr) throw logErr;
+
+      return { success: true, message: 'Senha alterada com sucesso!' };
+    } catch (err: any) {
+      console.error('Erro no changePassword:', err);
+      return { success: false, message: `Erro ao alterar senha: ${err.message}` };
+    }
   },
 
   // 11. Resetar senha por Admin
-  resetPassword: (
+  resetPassword: async (
     schoolUserId: string,
     currentUser: User
-  ): { success: boolean; message: string } => {
+  ): Promise<{ success: boolean; message: string }> => {
     if (currentUser.role !== 'admin') {
       return { success: false, message: 'Acesso negado: apenas administradores podem redefinir senhas.' };
     }
-    const users = mockDb.getUsers();
-    const targetUser = users.find(u => u.id === schoolUserId);
-    if (!targetUser) {
-      return { success: false, message: 'Usuário escolar não encontrado.' };
+
+    try {
+      const { data: targetUser, error: userErr } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', schoolUserId)
+        .single();
+
+      if (userErr || !targetUser) {
+        return { success: false, message: 'Usuário escolar não encontrado.' };
+      }
+
+      // Atualiza Senha no Supabase
+      const { error: updateErr } = await supabase
+        .from('users')
+        .update({ password: 'crpazul1234*' })
+        .eq('id', targetUser.id);
+
+      if (updateErr) throw updateErr;
+
+      // Auditoria
+      const timestamp = new Date().toISOString();
+      const { error: logErr } = await supabase.from('audit_logs').insert({
+        id: `log-${generateId()}`,
+        created_at: timestamp,
+        user_name: currentUser.name,
+        user_id: currentUser.id,
+        candidate_id: '-',
+        candidate_name: targetUser.name,
+        changed_field: 'Redefinição de Senha',
+        old_value: '********',
+        new_value: 'Senha redefinida para crpazul1234* pelo Admin'
+      });
+      if (logErr) throw logErr;
+
+      return { success: true, message: 'Senha redefinida para o padrão crpazul1234*!' };
+    } catch (err: any) {
+      console.error('Erro no resetPassword:', err);
+      return { success: false, message: `Erro ao redefinir senha: ${err.message}` };
     }
-
-    mockDb.updateUserPassword(targetUser.id, 'crpazul1234*');
-
-    // Auditoria
-    const logs = mockDb.getAuditLogs();
-    const newLog: AuditLog = {
-      id: `log-${generateId()}`,
-      createdAt: new Date().toISOString(),
-      userName: currentUser.name,
-      userId: currentUser.id,
-      candidateId: '-',
-      candidateName: targetUser.name,
-      changedField: 'Redefinição de Senha',
-      oldValue: '********',
-      newValue: 'Senha redefinida para crpazul1234* pelo Admin'
-    };
-    mockDb.setAuditLogs([newLog, ...logs]);
-
-    return { success: true, message: 'Senha redefinida para o padrão crpazul1234*!' };
   }
 };

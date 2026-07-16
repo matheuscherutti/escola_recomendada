@@ -335,9 +335,10 @@ interface ValidationWorkspaceProps {
   currentUser: User;
   onApprove: (id: string) => void;
   onReject: (id: string) => void;
+  schools: School[];
 }
 
-function ValidationWorkspace({ candidates, currentUser, onApprove, onReject }: ValidationWorkspaceProps) {
+function ValidationWorkspace({ candidates, currentUser, onApprove, onReject, schools }: ValidationWorkspaceProps) {
   const [filter, setFilter] = useState<ValidationFilter>('pending');
   const [search, setSearch] = useState('');
   const [confirmReject, setConfirmReject] = useState<string | null>(null);
@@ -443,7 +444,7 @@ function ValidationWorkspace({ candidates, currentUser, onApprove, onReject }: V
                 </tr>
               ) : (
                 filtered.map((c) => {
-                  const schoolName = mockDb.getSchools().find((s) => s.id === c.schoolId)?.name ?? '—';
+                  const schoolName = schools.find((s) => s.id === c.schoolId)?.name ?? '—';
                   return (
                     <tr key={c.id} className="border-b border-brand-medium/20 hover:bg-brand-medium/10 transition">
                       <td className="py-3.5 px-5 font-semibold text-slate-200">{c.name}</td>
@@ -619,10 +620,11 @@ interface CertificateDrawerProps {
   onValidate: () => void;
   onReject: () => void;
   onClose: () => void;
+  schools: School[];
 }
 
-function CertificateDrawer({ prog, candidateName, onValidate, onReject, onClose }: CertificateDrawerProps) {
-  const schoolName = mockDb.getSchools().find((s) => s.id === prog.schoolId)?.name ?? '—';
+function CertificateDrawer({ prog, candidateName, onValidate, onReject, onClose, schools }: CertificateDrawerProps) {
+  const schoolName = schools.find((s) => s.id === prog.schoolId)?.name ?? '—';
   const [confirmingReject, setConfirmingReject] = useState(false);
 
   return (
@@ -1073,7 +1075,7 @@ function TrainingWorkspace({ candidates, modules, schools, currentUser, onComple
 
   const renderCandidateCard = (c: Candidate) => {
     const { mods, done, pct } = getProgress(c.id);
-    const schoolName = mockDb.getSchools().find((s) => s.id === c.schoolId)?.name ?? '—';
+    const schoolName = schools.find((s) => s.id === c.schoolId)?.name ?? '—';
     const isSchoolOwner = currentUser.role === 'school_admin'; // Any school admin can attach/upload
 
     return (
@@ -1211,6 +1213,7 @@ function TrainingWorkspace({ candidates, modules, schools, currentUser, onComple
           }}
           onReject={() => setDrawerProg(null)}
           onClose={() => setDrawerProg(null)}
+          schools={schools}
         />
       )}
 
@@ -1254,10 +1257,11 @@ interface KanbanCardProps {
   currentUser: User;
   onMove: (id: string, status: SelectionStatus) => void;
   onUpdateGupy: (id: string, gupyStatus: GupyStatus) => void;
+  schools: School[];
 }
 
-function KanbanCard({ candidate: c, modules, currentUser, onMove, onUpdateGupy }: KanbanCardProps) {
-  const schoolName = mockDb.getSchools().find((s) => s.id === c.schoolId)?.name ?? '—';
+function KanbanCard({ candidate: c, modules, currentUser, onMove, onUpdateGupy, schools }: KanbanCardProps) {
+  const schoolName = schools.find((s) => s.id === c.schoolId)?.name ?? '—';
   const lastMod = modules.filter((m) => m.candidateId === c.id && m.status === 'completed')
     .sort((a, b) => new Date(b.uploadedAt ?? '').getTime() - new Date(a.uploadedAt ?? '').getTime())[0];
 
@@ -1351,15 +1355,16 @@ interface SelectionWorkspaceProps {
   currentUser: User;
   onMove: (id: string, status: SelectionStatus) => void;
   onUpdateGupy: (id: string, gupyStatus: GupyStatus) => void;
+  schools: School[];
 }
 
 const KANBAN_COLUMNS: { id: SelectionStatus; label: string; sublabel: string; colorClass: string; badgeClass: string }[] = [
   { id: 'finalized', label: 'Finalizou', sublabel: 'Treinamento concluído com sucesso', colorClass: 'border-brand-medium/40 bg-brand-medium/10', badgeClass: 'bg-brand-medium/60 text-slate-400' },
-  { id: 'in_selection', label: 'Processo Seletivo', sublabel: 'Convocado para seleção', colorClass: 'border-brand-accent/15 bg-brand-accent/3', badgeClass: 'bg-brand-accent/20 text-sky-400' },
+  { id: 'in_selection', label: 'Processo Seletivo', sublabel: 'Convocado para selection', colorClass: 'border-brand-accent/15 bg-brand-accent/3', badgeClass: 'bg-brand-accent/20 text-sky-400' },
   { id: 'hired', label: 'Contratado', sublabel: 'Candidatos contratados', colorClass: 'border-emerald-500/15 bg-emerald-500/3', badgeClass: 'bg-emerald-500/20 text-emerald-400' },
 ];
 
-function SelectionWorkspace({ candidates, modules, currentUser, onMove, onUpdateGupy }: SelectionWorkspaceProps) {
+function SelectionWorkspace({ candidates, modules, currentUser, onMove, onUpdateGupy, schools }: SelectionWorkspaceProps) {
   const completed = candidates.filter((c) => {
     const matchesRole = currentUser.role === 'admin' || c.schoolId === currentUser.schoolId;
     return matchesRole && c.status === 'completed';
@@ -1410,7 +1415,7 @@ function SelectionWorkspace({ candidates, modules, currentUser, onMove, onUpdate
                     </div>
                   ) : (
                     cards.map((c) => (
-                      <KanbanCard key={c.id} candidate={c} modules={modules} currentUser={currentUser} onMove={onMove} onUpdateGupy={onUpdateGupy} />
+                      <KanbanCard key={c.id} candidate={c} modules={modules} currentUser={currentUser} onMove={onMove} onUpdateGupy={onUpdateGupy} schools={schools} />
                     ))
                   )}
                 </div>
@@ -1768,9 +1773,10 @@ function ConfigurationWorkspace({ schools, onAddSchool, users, onResetPassword, 
 // ─────────────────────────────────────────────────────────────────────────────
 interface LoginScreenProps {
   onLogin: (user: User) => void;
+  users: User[];
 }
 
-function LoginScreen({ onLogin }: LoginScreenProps) {
+function LoginScreen({ onLogin, users }: LoginScreenProps) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -1779,7 +1785,7 @@ function LoginScreen({ onLogin }: LoginScreenProps) {
     e.preventDefault();
     setError('');
 
-    const user = mockDb.getUsers().find(
+    const user = users.find(
       (u) => u.email.toLowerCase() === email.toLowerCase()
     );
 
@@ -1793,7 +1799,7 @@ function LoginScreen({ onLogin }: LoginScreenProps) {
 
   const handleQuickLogin = (role: 'admin' | 'school') => {
     const targetEmail = role === 'admin' ? 'admin@empresa.com' : 'contato@escolaalfa.com.br';
-    const user = mockDb.getUsers().find((u) => u.email === targetEmail);
+    const user = users.find((u) => u.email === targetEmail);
     if (user) {
       onLogin(user);
     }
@@ -2106,30 +2112,53 @@ function SchoolSettingsWorkspace({ onChangePassword }: SchoolSettingsWorkspacePr
 // APP ROOT
 // ─────────────────────────────────────────────────────────────────────────────
 export default function App() {
-  const [users, setUsers]             = useState<User[]>(() => mockDb.getUsers());
-  const [schools, setSchools]         = useState<School[]>(() => mockDb.getSchools());
-  const [currentUser, setCurrentUser] = useState<User | null>(() => {
-    const saved = localStorage.getItem('active_user_id');
-    if (saved) {
-      const u = mockDb.getUsers().find((x) => x.id === saved);
-      if (u) return u;
-    }
-    return null;
-  });
-  const [candidates, setCandidates]   = useState<Candidate[]>(() => mockDb.getCandidates());
-  const [modules, setModules]         = useState<CandidateModuleProgress[]>(() => mockDb.getModuleProgress());
-  const [notifications, setNotifications] = useState<Notification[]>(() => mockDb.getNotifications());
+  const [users, setUsers]             = useState<User[]>([]);
+  const [schools, setSchools]         = useState<School[]>([]);
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [candidates, setCandidates]   = useState<Candidate[]>([]);
+  const [modules, setModules]         = useState<CandidateModuleProgress[]>([]);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
   const [toasts, setToasts]           = useState<Notification[]>([]);
   const [activeWorkspace, setActiveWorkspace] = useState<WorkspaceId>('validation');
   const [showAddModal, setShowAddModal] = useState(false);
+  const [loading, setLoading]         = useState(true);
 
-  const refresh = () => {
-    setCandidates(mockDb.getCandidates());
-    setModules(mockDb.getModuleProgress());
-    setNotifications(mockDb.getNotifications());
-    setSchools(mockDb.getSchools());
-    setUsers(mockDb.getUsers());
+  const refresh = async () => {
+    try {
+      const [u, s, c, m, n] = await Promise.all([
+        mockDb.getUsers(),
+        mockDb.getSchools(),
+        mockDb.getCandidates(),
+        mockDb.getModuleProgress(),
+        mockDb.getNotifications()
+      ]);
+      setUsers(u);
+      setSchools(s);
+      setCandidates(c);
+      setModules(m);
+      setNotifications(n);
+
+      // Check current user
+      const saved = localStorage.getItem('active_user_id');
+      if (saved) {
+        const found = u.find((x) => x.id === saved);
+        if (found) {
+          setCurrentUser(found);
+        } else {
+          localStorage.removeItem('active_user_id');
+          setCurrentUser(null);
+        }
+      }
+    } catch (err) {
+      console.error("Erro ao carregar dados do banco:", err);
+    } finally {
+      setLoading(false);
+    }
   };
+
+  useEffect(() => {
+    refresh();
+  }, []);
 
   useEffect(() => {
     if (!currentUser) return;
@@ -2148,7 +2177,25 @@ export default function App() {
     return () => window.removeEventListener('new_notification', handler);
   }, [currentUser]);
 
-  useEffect(() => { refresh(); }, [currentUser]);
+  useEffect(() => {
+    if (currentUser) {
+      const fetchLists = async () => {
+        try {
+          const [c, m, n] = await Promise.all([
+            mockDb.getCandidates(),
+            mockDb.getModuleProgress(),
+            mockDb.getNotifications()
+          ]);
+          setCandidates(c);
+          setModules(m);
+          setNotifications(n);
+        } catch (err) {
+          console.error(err);
+        }
+      };
+      fetchLists();
+    }
+  }, [currentUser]);
 
   const visibleNotifications = currentUser
     ? notifications.filter((n) =>
@@ -2156,48 +2203,49 @@ export default function App() {
       )
     : [];
 
-  const markAllRead = () => {
+  const markAllRead = async () => {
     if (!currentUser) return;
     const updated = notifications.map((n) => {
       const belongs = currentUser.role === 'admin' ? n.recipientRole === 'admin' : n.recipientSchoolId === currentUser.schoolId;
       return belongs ? { ...n, isRead: true, readAt: new Date().toISOString() } : n;
     });
-    mockDb.setNotifications(updated);
-    refresh();
+    await mockDb.setNotifications(updated);
+    await refresh();
   };
 
-  const handleApprove = (id: string) => {
+  const handleApprove = async (id: string) => {
     if (!currentUser) return;
-    const res = stateMachine.validateCandidate(id, true, currentUser);
+    const res = await stateMachine.validateCandidate(id, true, currentUser);
     if (!res.success) alert(res.message);
-    else refresh();
+    else await refresh();
   };
 
-  const handleReject = (id: string) => {
+  const handleReject = async (id: string) => {
     if (!currentUser) return;
-    const res = stateMachine.validateCandidate(id, false, currentUser);
+    const res = await stateMachine.validateCandidate(id, false, currentUser);
     if (!res.success) alert(res.message);
-    else refresh();
+    else await refresh();
   };
 
-  const checkCompletionAndSwitch = (candidateId: string) => {
-    const cand = mockDb.getCandidates().find((c) => c.id === candidateId);
+  const checkCompletionAndSwitch = async (candidateId: string) => {
+    const cands = await mockDb.getCandidates();
+    const cand = cands.find((c) => c.id === candidateId);
     if (cand && cand.status === 'completed') {
       setActiveWorkspace('selection');
     }
   };
 
-  const handleCompleteModule = (candidateId: string, code: ModuleCode, date: string, cert: string, classSheets: string[], schoolId: string) => {
+  const handleCompleteModule = async (candidateId: string, code: ModuleCode, date: string, cert: string, classSheets: string[], schoolId: string) => {
     if (!currentUser) return;
-    const res = stateMachine.completeModule(candidateId, code, date, schoolId, cert, classSheets, currentUser);
+    const res = await stateMachine.completeModule(candidateId, code, date, schoolId, cert, classSheets, currentUser);
     if (!res.success) alert(res.message);
     else {
-      refresh();
-      checkCompletionAndSwitch(candidateId);
+      await refresh();
+      await checkCompletionAndSwitch(candidateId);
     }
   };
 
-  const handleMoveKanban = (id: string, status: SelectionStatus) => {
+  const handleMoveKanban = async (id: string, status: SelectionStatus) => {
     if (!currentUser) return;
     if (status === 'in_selection') {
       const cand = candidates.find(c => c.id === id);
@@ -2206,65 +2254,73 @@ export default function App() {
         return;
       }
     }
-    const res = stateMachine.updateSelectionStatus(id, status, currentUser);
+    const res = await stateMachine.updateSelectionStatus(id, status, currentUser);
     if (!res.success) alert(res.message);
-    else refresh();
+    else await refresh();
   };
 
-  const handleUpdateGupy = (id: string, gupyStatus: GupyStatus) => {
+  const handleUpdateGupy = async (id: string, gupyStatus: GupyStatus) => {
     if (!currentUser) return;
-    const res = stateMachine.updateGupyStatus(id, gupyStatus, currentUser);
+    const res = await stateMachine.updateGupyStatus(id, gupyStatus, currentUser);
     if (!res.success) alert(res.message);
-    else refresh();
+    else await refresh();
   };
 
-  const handleCreateCandidate = (re: string, name: string, anac: string) => {
+  const handleCreateCandidate = async (re: string, name: string, anac: string) => {
     if (!currentUser || !currentUser.schoolId) return;
-    const res = stateMachine.createCandidate(re, name, anac, currentUser.schoolId, currentUser);
+    const res = await stateMachine.createCandidate(re, name, anac, currentUser.schoolId, currentUser);
     if (!res.success) alert(res.message);
-    else { setShowAddModal(false); refresh(); }
+    else { setShowAddModal(false); await refresh(); }
   };
 
-  const handleCreateSchool = (name: string, contactName: string, email: string, phone: string) => {
-    const currentSchools = mockDb.getSchools();
-    const newSchoolId = `sch-${Math.random().toString(36).substring(2, 9)}`;
-    const newSchool: School = { id: newSchoolId, name, active: true, contactName, email, phone };
-    mockDb.setSchools([...currentSchools, newSchool]);
+  const handleCreateSchool = async (name: string, contactName: string, email: string, phone: string) => {
+    try {
+      const currentSchools = await mockDb.getSchools();
+      const newSchoolId = `sch-${Math.random().toString(36).substring(2, 9)}`;
+      const newSchool: School = { id: newSchoolId, name, active: true, contactName, email, phone };
+      await mockDb.setSchools([...currentSchools, newSchool]);
 
-    const currentUsers = mockDb.getUsers();
-    const newUser: User = {
-      id: `usr-${Math.random().toString(36).substring(2, 9)}`,
-      email,
-      name: `${contactName} (${name.split(' ').slice(-1)[0] || name})`,
-      role: 'school_admin',
-      password: 'crpazul1234*',
-      schoolId: newSchoolId
-    };
-    mockDb.setUsers([...currentUsers, newUser]);
+      const currentUsers = await mockDb.getUsers();
+      const newUser: User = {
+        id: `usr-${Math.random().toString(36).substring(2, 9)}`,
+        email,
+        name: `${contactName} (${name.split(' ').slice(-1)[0] || name})`,
+        role: 'school_admin',
+        password: 'crpazul1234*',
+        schoolId: newSchoolId
+      };
+      await mockDb.setUsers([...currentUsers, newUser]);
 
-    refresh();
-  };
-
-  const handleCreateAdmin = (name: string, email: string) => {
-    const currentUsers = mockDb.getUsers();
-    const exists = currentUsers.some(u => u.email.toLowerCase() === email.toLowerCase());
-    if (exists) {
-      alert('Já existe um usuário cadastrado com este e-mail.');
-      return;
+      await refresh();
+    } catch (err) {
+      console.error(err);
     }
-    const newAdmin: User = {
-      id: `usr-${Math.random().toString(36).substring(2, 9)}`,
-      email,
-      name,
-      role: 'admin',
-      password: 'crpazul1234*'
-    };
-    mockDb.setUsers([...currentUsers, newAdmin]);
-    refresh();
-    alert('Administrador cadastrado com sucesso! Senha padrão: crpazul1234*');
   };
 
-  const handleAdminEditModule = (
+  const handleCreateAdmin = async (name: string, email: string) => {
+    try {
+      const currentUsers = await mockDb.getUsers();
+      const exists = currentUsers.some(u => u.email.toLowerCase() === email.toLowerCase());
+      if (exists) {
+        alert('Já existe um usuário cadastrado com este e-mail.');
+        return;
+      }
+      const newAdmin: User = {
+        id: `usr-${Math.random().toString(36).substring(2, 9)}`,
+        email,
+        name,
+        role: 'admin',
+        password: 'crpazul1234*'
+      };
+      await mockDb.setUsers([...currentUsers, newAdmin]);
+      await refresh();
+      alert('Administrador cadastrado com sucesso! Senha padrão: crpazul1234*');
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleAdminEditModule = async (
     candidateId: string,
     code: ModuleCode,
     status: ModuleStatus,
@@ -2274,44 +2330,46 @@ export default function App() {
     schoolId?: string
   ) => {
     if (!currentUser) return;
-    const res = stateMachine.adminEditModule(candidateId, code, status, date, schoolId, cert, classSheets, currentUser);
+    const res = await stateMachine.adminEditModule(candidateId, code, status, date, schoolId, cert, classSheets, currentUser);
     if (!res.success) alert(res.message);
     else {
-      refresh();
-      checkCompletionAndSwitch(candidateId);
+      await refresh();
+      await checkCompletionAndSwitch(candidateId);
     }
   };
 
-  const handleResetPassword = (schoolUserId: string) => {
+  const handleResetPassword = async (schoolUserId: string) => {
     if (!currentUser) return;
-    const res = stateMachine.resetPassword(schoolUserId, currentUser);
+    const res = await stateMachine.resetPassword(schoolUserId, currentUser);
     if (!res.success) alert(res.message);
     else {
       alert(res.message);
-      refresh();
+      await refresh();
     }
   };
 
   const handleChangePassword = async (oldPass: string, newPass: string): Promise<boolean> => {
     if (!currentUser) return false;
-    const res = stateMachine.changePassword(oldPass, newPass, currentUser);
+    const res = await stateMachine.changePassword(oldPass, newPass, currentUser);
     if (!res.success) {
       return false;
     }
-    refresh();
-    const updated = mockDb.getUsers().find((u) => u.id === currentUser.id);
+    await refresh();
+    const updatedUsers = await mockDb.getUsers();
+    const updated = updatedUsers.find((u) => u.id === currentUser.id);
     if (updated) {
       setCurrentUser(updated);
     }
     return true;
   };
 
-  const handleForceChangePassword = (newPass: string) => {
+  const handleForceChangePassword = async (newPass: string) => {
     if (!currentUser) return;
-    const res = stateMachine.changePassword('crpazul1234*', newPass, currentUser);
+    const res = await stateMachine.changePassword('crpazul1234*', newPass, currentUser);
     if (res.success) {
-      refresh();
-      const updated = mockDb.getUsers().find((u) => u.id === currentUser.id);
+      await refresh();
+      const updatedUsers = await mockDb.getUsers();
+      const updated = updatedUsers.find((u) => u.id === currentUser.id);
       if (updated) {
         setCurrentUser(updated);
       }
@@ -2340,8 +2398,19 @@ export default function App() {
       }).length
     : 0;
 
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-brand-darkest flex items-center justify-center p-4">
+        <div className="flex flex-col items-center gap-4 text-center">
+          <div className="w-12 h-12 border-4 border-sky-500/20 border-t-sky-500 rounded-full animate-spin"></div>
+          <p className="text-slate-400 text-sm font-semibold">Conectando ao banco de dados...</p>
+        </div>
+      </div>
+    );
+  }
+
   if (!currentUser) {
-    return <LoginScreen onLogin={(user) => { setCurrentUser(user); localStorage.setItem('active_user_id', user.id); }} />;
+    return <LoginScreen onLogin={(user) => { setCurrentUser(user); localStorage.setItem('active_user_id', user.id); }} users={users} />;
   }
 
   if (currentUser.role === 'school_admin' && currentUser.password === 'crpazul1234*') {
@@ -2380,7 +2449,7 @@ export default function App() {
               </button>
             )}
             <button
-              onClick={() => { mockDb.resetDatabase(); refresh(); }}
+              onClick={async () => { await mockDb.resetDatabase(); await refresh(); }}
               title="Resetar banco de dados simulado"
               className="p-2 rounded-xl bg-brand-dark hover:bg-red-500/10 text-slate-500 hover:text-red-400 border border-brand-medium/40 transition"
             >
@@ -2396,6 +2465,7 @@ export default function App() {
               currentUser={currentUser}
               onApprove={handleApprove}
               onReject={handleReject}
+              schools={schools}
             />
           )}
           {activeWorkspace === 'training' && (
@@ -2415,6 +2485,7 @@ export default function App() {
               currentUser={currentUser}
               onMove={handleMoveKanban}
               onUpdateGupy={handleUpdateGupy}
+              schools={schools}
             />
           )}
           {activeWorkspace === 'config' && (
