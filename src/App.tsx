@@ -42,6 +42,8 @@ import {
   Users,
   Settings,
   LogOut,
+  Trash2,
+  Edit2,
 } from 'lucide-react';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1564,16 +1566,20 @@ function AddAdminModal({ onSubmit, onClose, users }: AddAdminModalProps) {
 interface ConfigurationWorkspaceProps {
   schools: School[];
   onAddSchool: (name: string, contactName: string, email: string, phone: string) => void;
+  onEditSchool: (id: string, name: string, contactName: string, email: string, phone: string) => void;
+  onDeleteSchool: (id: string) => void;
   users: User[];
   onResetPassword: (userId: string) => void;
   onAddAdmin: (userId: string) => void;
   onAssignSchoolUser: (userId: string, schoolId: string) => void;
 }
 
-function ConfigurationWorkspace({ schools, onAddSchool, users, onResetPassword, onAddAdmin, onAssignSchoolUser }: ConfigurationWorkspaceProps) {
+function ConfigurationWorkspace({ schools, onAddSchool, onEditSchool, onDeleteSchool, users, onResetPassword, onAddAdmin, onAssignSchoolUser }: ConfigurationWorkspaceProps) {
   const [showAddModal, setShowAddModal] = useState(false);
   const [showAddAdminModal, setShowAddAdminModal] = useState(false);
   const [form, setForm] = useState({ name: '', contactName: '', email: '', phone: '' });
+  const [editingSchool, setEditingSchool] = useState<School | null>(null);
+  const [editForm, setEditForm] = useState({ name: '', contactName: '', email: '', phone: '' });
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -1581,6 +1587,23 @@ function ConfigurationWorkspace({ schools, onAddSchool, users, onResetPassword, 
     onAddSchool(form.name, form.contactName, form.email, form.phone);
     setForm({ name: '', contactName: '', email: '', phone: '' });
     setShowAddModal(false);
+  };
+
+  const handleStartEdit = (school: School) => {
+    setEditingSchool(school);
+    setEditForm({
+      name: school.name,
+      contactName: school.contactName,
+      email: school.email,
+      phone: school.phone
+    });
+  };
+
+  const handleEditSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingSchool) return;
+    onEditSchool(editingSchool.id, editForm.name, editForm.contactName, editForm.email, editForm.phone);
+    setEditingSchool(null);
   };
 
   const admins = users.filter((u) => u.role === 'admin');
@@ -1616,6 +1639,7 @@ function ConfigurationWorkspace({ schools, onAddSchool, users, onResetPassword, 
                   <th className="py-3.5 px-5">Celular</th>
                   <th className="py-3.5 px-5">Status</th>
                   <th className="py-3.5 px-5 text-right">Acesso</th>
+                  <th className="py-3.5 px-5 text-right">Ações</th>
                 </tr>
               </thead>
               <tbody>
@@ -1663,6 +1687,24 @@ function ConfigurationWorkspace({ schools, onAddSchool, users, onResetPassword, 
                             <span className="text-slate-600 text-[11px] italic">Aguardando cadastro</span>
                           )
                         )}
+                      </td>
+                      <td className="py-3.5 px-5 text-right">
+                        <div className="flex items-center justify-end gap-2">
+                          <button
+                            onClick={() => handleStartEdit(school)}
+                            className="p-1 rounded bg-brand-medium/40 hover:bg-brand-medium border border-brand-medium/40 text-slate-400 hover:text-sky-400 transition cursor-pointer"
+                            title="Editar Escola"
+                          >
+                            <Edit2 className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={() => onDeleteSchool(school.id)}
+                            className="p-1 rounded bg-brand-medium/40 hover:bg-brand-medium border border-brand-medium/40 text-slate-400 hover:text-red-400 transition cursor-pointer"
+                            title="Excluir Escola"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -1781,6 +1823,52 @@ function ConfigurationWorkspace({ schools, onAddSchool, users, onResetPassword, 
 
       {showAddAdminModal && (
         <AddAdminModal users={users} onSubmit={onAddAdmin} onClose={() => setShowAddAdminModal(false)} />
+      )}
+
+      {editingSchool && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-brand-dark border border-brand-medium/40 rounded-2xl w-full max-w-md shadow-2xl">
+            <div className="px-6 py-5 border-b border-brand-medium/30 flex items-center justify-between">
+              <div>
+                <h3 className="font-bold text-slate-100">Editar Escola</h3>
+                <p className="text-xs text-slate-500 mt-0.5">Atualize as informações da escola parceira</p>
+              </div>
+              <button onClick={() => setEditingSchool(null)} className="p-2 rounded-xl bg-brand-medium hover:bg-brand-medium/80 text-slate-400 transition">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <form onSubmit={handleEditSubmit} className="px-6 py-5 flex flex-col gap-4">
+              <div>
+                <label className="text-[11px] text-slate-400 uppercase font-semibold tracking-wide block mb-1.5">Nome da Escola</label>
+                <input required type="text" value={editForm.name} onChange={(e) => setEditForm(p => ({ ...p, name: e.target.value }))} placeholder="Ex: Escola de Aviação Delta"
+                  className="w-full bg-brand-medium border border-brand-medium/40 text-slate-200 text-sm rounded-xl px-3 py-2.5 outline-none focus:border-brand-accent transition placeholder-slate-600" />
+              </div>
+              <div>
+                <label className="text-[11px] text-slate-400 uppercase font-semibold tracking-wide block mb-1.5">Contato / Responsável</label>
+                <input required type="text" value={editForm.contactName} onChange={(e) => setEditForm(p => ({ ...p, contactName: e.target.value }))} placeholder="Ex: Carlos Andrade"
+                  className="w-full bg-brand-medium border border-brand-medium/40 text-slate-200 text-sm rounded-xl px-3 py-2.5 outline-none focus:border-brand-accent transition placeholder-slate-600" />
+              </div>
+              <div>
+                <label className="text-[11px] text-slate-400 uppercase font-semibold tracking-wide block mb-1.5">E-mail de Contato</label>
+                <input required type="email" value={editForm.email} onChange={(e) => setEditForm(p => ({ ...p, email: e.target.value }))} placeholder="carlos@escoladelta.com"
+                  className="w-full bg-brand-medium border border-brand-medium/40 text-slate-200 text-sm rounded-xl px-3 py-2.5 outline-none focus:border-brand-accent transition placeholder-slate-600" />
+              </div>
+              <div>
+                <label className="text-[11px] text-slate-400 uppercase font-semibold tracking-wide block mb-1.5">Celular / WhatsApp</label>
+                <input required type="text" value={editForm.phone} onChange={(e) => setEditForm(p => ({ ...p, phone: e.target.value }))} placeholder="Ex: 11999998888"
+                  className="w-full bg-brand-medium border border-brand-medium/40 text-slate-200 text-sm rounded-xl px-3 py-2.5 outline-none focus:border-brand-accent transition placeholder-slate-600" />
+              </div>
+              <div className="flex gap-3 pt-2">
+                <button type="button" onClick={() => setEditingSchool(null)} className="flex-1 py-2.5 rounded-xl bg-brand-medium hover:bg-brand-medium/80 text-slate-300 text-sm font-semibold transition">
+                  Cancelar
+                </button>
+                <button type="submit" className="flex-1 py-2.5 rounded-xl bg-sky-500 hover:bg-sky-600 text-slate-950 text-sm font-bold transition shadow-lg shadow-sky-500/20">
+                  Salvar Alterações
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
       )}
     </div>
   );
@@ -2266,6 +2354,42 @@ export default function App() {
     }
   };
 
+  const handleEditSchool = async (id: string, name: string, contactName: string, email: string, phone: string) => {
+    try {
+      const currentSchools = await mockDb.getSchools();
+      const updated = currentSchools.map(s => s.id === id ? { ...s, name, contactName, email, phone } : s);
+      await mockDb.setSchools(updated);
+      await refresh();
+      alert('Escola atualizada com sucesso!');
+    } catch (err: any) {
+      console.error(err);
+      alert(`Erro ao editar escola: ${err.message}`);
+    }
+  };
+
+  const handleDeleteSchool = async (id: string) => {
+    const confirmDelete = window.confirm(
+      "Tem certeza que deseja excluir esta escola? " +
+      "Isso apagará permanentemente o cadastro da escola no banco de dados. " +
+      "Se houver candidatos vinculados a esta escola, a exclusão pode falhar ou deixar dados inconsistentes."
+    );
+    if (!confirmDelete) return;
+
+    try {
+      const { error } = await supabase
+        .from('schools')
+        .delete()
+        .eq('id', id);
+
+      if (error) throw error;
+      await refresh();
+      alert('Escola excluída com sucesso!');
+    } catch (err: any) {
+      console.error(err);
+      alert(`Erro ao excluir escola: ${err.message}`);
+    }
+  };
+
   const handleCreateAdmin = async (userId: string) => {
     try {
       const { error } = await supabase
@@ -2477,6 +2601,8 @@ export default function App() {
               <ConfigurationWorkspace
                 schools={schools}
                 onAddSchool={handleCreateSchool}
+                onEditSchool={handleEditSchool}
+                onDeleteSchool={handleDeleteSchool}
                 users={users}
                 onResetPassword={handleResetPassword}
                 onAddAdmin={handleCreateAdmin}
