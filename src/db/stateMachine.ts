@@ -247,6 +247,7 @@ export const stateMachine = {
   ): Promise<{ success: boolean; message: string }> => {
     try {
       const timestamp = new Date().toISOString();
+      const targetStatus = currentUser.role === 'admin' ? 'completed' : 'waiting_admin';
 
       // Atualiza ou insere o progresso do módulo (upsert autocurativo)
       const { error: updateModErr } = await supabase
@@ -255,12 +256,13 @@ export const stateMachine = {
           id: `mod-${generateId()}`,
           candidate_id: candidateId,
           module_code: moduleCode,
-          status: 'completed',
+          status: targetStatus,
           completion_date: completionDate,
           school_id: schoolId,
           certificate_url: certificateName,
           class_sheets: classSheets,
           uploaded_at: timestamp,
+          rejection_reason: null,
           updated_by: currentUser.id,
           updated_at: timestamp
         }, {
@@ -293,7 +295,7 @@ export const stateMachine = {
         candidate_name: candidate.name,
         changed_field: `Módulo ${moduleCode.charAt(0) + moduleCode.slice(1).toLowerCase()}`,
         old_value: 'Pendente',
-        new_value: `Concluído (${certificateName})`
+        new_value: targetStatus === 'completed' ? `Concluído (${certificateName})` : `Aguardando Validação (${certificateName})`
       });
       if (logErr) throw logErr;
 
@@ -359,10 +361,135 @@ export const stateMachine = {
         window.dispatchEvent(new CustomEvent('new_notification', { detail: newNotification }));
       }
 
+      if (currentUser.role === 'school_admin') {
+        const newNotification: Notification = {
+          id: `not-${generateId()}`,
+          recipientRole: 'admin',
+          title: 'Novo Certificado Anexado',
+          message: `A escola enviou o certificado do módulo ${moduleCode === 'TEORICO' ? 'Teórico' : moduleCode === 'SIMULADOR' ? 'Simulador' : 'Voo'} para o candidato ${candidate.name} (RE: ${candidate.re}).`,
+          type: 'pending_validation',
+          candidateId: candidate.id,
+          isRead: false,
+          createdAt: timestamp
+        };
+
+        const { error: notifErr } = await supabase.from('notifications').insert({
+          id: newNotification.id,
+          recipient_role: newNotification.recipientRole,
+          title: newNotification.title,
+          message: newNotification.message,
+          type: newNotification.type,
+          candidate_id: newNotification.candidateId,
+          is_read: newNotification.isRead,
+          created_at: newNotification.createdAt
+        });
+        if (notifErr) console.error('Erro ao enviar notificação de upload:', notifErr);
+        window.dispatchEvent(new CustomEvent('new_notification', { detail: newNotification }));
+      }
+
       return { success: true, message: `Módulo ${moduleCode} atualizado com sucesso.` };
     } catch (err: any) {
       console.error('Erro no completeModule:', err);
       return { success: false, message: `Erro ao atualizar módulo: ${err.message}` };
+    }
+  },
+
+  rejectModule: async (
+    candidateId: string,
+    moduleCode: ModuleCode,
+    reason: string,
+    currentUser: User
+  ): Promise<{ success: boolean; message: string }> => {
+    if (currentUser.role !== 'admin') {
+      return { success: false, message: 'Apenas administradores podem rejeitar certificados.' };
+    }
+
+    try {
+      const timestamp = new Date().toISOString();
+
+      // Buscar candidato
+      const { data: candidate, error: candErr } = await supabase
+        .from('candidates')
+        .select('*')
+        .eq('id', candidateId)
+        .single();
+
+      if (candErr || !candidate) {
+        return { success: false, message: 'Candidato não encontrado.' };
+      }
+
+      // Buscar o registro do progresso
+      const { data: prog, error: progErr } = await supabase
+        .from('candidate_module_progress')
+        .select('*')
+        .eq('candidate_id', candidateId)
+        .eq('module_code', moduleCode)
+        .single();
+
+      if (progErr || !prog) {
+        return { success: false, message: 'Registro de progresso não encontrado.' };
+      }
+
+      // Atualiza o progresso para 'pending', limpa certificado e salva a justificativa
+      const { error: updateErr } = await supabase
+        .from('candidate_module_progress')
+        .update({
+          status: 'pending',
+          certificate_url: null,
+          class_sheets: null,
+          rejection_reason: reason,
+          uploaded_at: null,
+          updated_by: currentUser.id,
+          updated_at: timestamp
+        })
+        .eq('id', prog.id);
+
+      if (updateErr) throw updateErr;
+
+      // Grava Log de Auditoria
+      const { error: logErr } = await supabase.from('audit_logs').insert({
+        id: `log-${generateId()}`,
+        created_at: timestamp,
+        user_id: currentUser.id,
+        user_name: currentUser.name,
+        candidate_id: candidateId,
+        candidate_name: candidate.name,
+        changed_field: `Módulo ${moduleCode.charAt(0) + moduleCode.slice(1).toLowerCase()}`,
+        old_value: 'Aguardando Validação',
+        new_value: `Recusado (Justificativa: ${reason})`
+      });
+      if (logErr) throw logErr;
+
+      // Cria notificação para a escola
+      const modLabel = moduleCode === 'TEORICO' ? 'Teórico' : moduleCode === 'SIMULADOR' ? 'Simulador' : 'Voo';
+      const newNotification: Notification = {
+        id: `not-${generateId()}`,
+        recipientSchoolId: candidate.schoolId,
+        title: 'Certificado Recusado',
+        message: `O certificado do módulo ${modLabel} do candidato ${candidate.name} (RE: ${candidate.re}) foi recusado pelo Administrador. Motivo: ${reason}.`,
+        type: 'validation_result',
+        candidateId: candidateId,
+        isRead: false,
+        createdAt: timestamp
+      };
+
+      const { error: notifErr } = await supabase.from('notifications').insert({
+        id: newNotification.id,
+        recipient_school_id: newNotification.recipientSchoolId,
+        title: newNotification.title,
+        message: newNotification.message,
+        type: newNotification.type,
+        candidate_id: newNotification.candidateId,
+        is_read: newNotification.isRead,
+        created_at: newNotification.createdAt
+      });
+      if (notifErr) console.error('Erro ao enviar notificação de recusa:', notifErr);
+      window.dispatchEvent(new CustomEvent('new_notification', { detail: newNotification }));
+
+      return { success: true, message: 'Certificado rejeitado com sucesso.' };
+    } catch (err: any) {
+      console.error('Erro no rejectModule:', err);
+      return { success: false, message: `Erro ao rejeitar certificado: ${err.message}` };
     }
   },
 

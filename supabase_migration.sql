@@ -60,6 +60,7 @@ CREATE TABLE candidate_module_progress (
     certificate_url TEXT,
     class_sheets TEXT[],
     uploaded_at TIMESTAMP WITH TIME ZONE,
+    rejection_reason TEXT,
     updated_by UUID REFERENCES users(id) ON DELETE SET NULL,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
     UNIQUE(candidate_id, module_code)

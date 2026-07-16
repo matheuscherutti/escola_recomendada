@@ -44,6 +44,7 @@ import {
   LogOut,
   Trash2,
   Edit2,
+  Download,
 } from 'lucide-react';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -596,6 +597,11 @@ function ModuleBlock({ code, prog, isSchoolOwner, isAdmin, onAttach, onOpenValid
 
   const isClickable = (status === 'completed' && isAdmin) || (status === 'waiting_admin' && isAdmin) || ((status === 'pending' || status === 'not_started') && (isSchoolOwner || isAdmin));
 
+  const fmtDate = (iso?: string) => {
+    if (!iso) return '';
+    return new Date(iso).toLocaleDateString('pt-BR');
+  };
+
   return (
     <button
       onClick={handleClick}
@@ -610,22 +616,24 @@ function ModuleBlock({ code, prog, isSchoolOwner, isAdmin, onAttach, onOpenValid
       </div>
       {iconEl()}
       <span className="text-[10px] font-medium leading-tight text-center">
-        {status === 'completed' ? `${fmt(prog?.completionDate)}` :
+        {status === 'completed' ? `${fmtDate(prog?.completionDate)}` :
          status === 'waiting_admin' ? (isAdmin ? 'Clique p/ validar' : 'Aguard. Admin') :
          (isSchoolOwner || isAdmin) ? 'Anexar cert.' : 'Pendente'}
       </span>
+      {prog?.rejectionReason && status === 'pending' && (
+        <span className="text-[9px] font-bold text-rose-400 block mt-1 text-center truncate max-w-[85px]" title={`Recusado: ${prog.rejectionReason}`}>
+          Motivo: {prog.rejectionReason}
+        </span>
+      )}
     </button>
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// CERTIFICATE DRAWER
-// ─────────────────────────────────────────────────────────────────────────────
 interface CertificateDrawerProps {
   prog: CandidateModuleProgress;
   candidateName: string;
   onValidate: () => void;
-  onReject: () => void;
+  onReject: (reason: string) => void;
   onClose: () => void;
   schools: School[];
 }
@@ -633,6 +641,37 @@ interface CertificateDrawerProps {
 function CertificateDrawer({ prog, candidateName, onValidate, onReject, onClose, schools }: CertificateDrawerProps) {
   const schoolName = schools.find((s) => s.id === prog.schoolId)?.name ?? '—';
   const [confirmingReject, setConfirmingReject] = useState(false);
+  const [rejectionReason, setRejectionReason] = useState('');
+
+  const downloadFile = async (url: string, filename: string) => {
+    try {
+      const response = await fetch(url);
+      const blob = await response.blob();
+      const blobUrl = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = blobUrl;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(blobUrl);
+    } catch (err) {
+      console.error('Erro ao baixar arquivo:', err);
+      // Fallback
+      window.open(url, '_blank');
+    }
+  };
+
+  const fmt = (iso?: string) => {
+    if (!iso) return '—';
+    return new Date(iso).toLocaleDateString('pt-BR', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  };
 
   return (
     <>
@@ -648,66 +687,95 @@ function CertificateDrawer({ prog, candidateName, onValidate, onReject, onClose,
                 AGUARDANDO VALIDAÇÃO
               </span>
             </div>
-            <h3 className="font-bold text-slate-100 text-base">{moduleLabel(prog.moduleCode)}</h3>
-            <p className="text-sm text-slate-400">{candidateName}</p>
+            <h3 className="font-bold text-slate-100">{candidateName}</h3>
+            <p className="text-xs text-slate-500 mt-0.5">Módulo: {moduleLabel(prog.moduleCode)}</p>
           </div>
-          <button
-            onClick={onClose}
-            className="p-2 rounded-xl bg-brand-medium hover:bg-brand-medium/80 text-slate-400 hover:text-slate-200 transition"
-          >
-            <X className="w-5 h-5" />
+          <button onClick={onClose} className="p-2 rounded-xl bg-brand-medium hover:bg-brand-medium/80 text-slate-400 transition">
+            <X className="w-4 h-4" />
           </button>
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto px-6 py-5 flex flex-col gap-5">
-          {/* Metadata */}
-          <div className="bg-brand-medium/30 rounded-xl p-4 flex flex-col gap-3">
+        <div className="flex-1 overflow-y-auto p-6 flex flex-col gap-6">
+          {/* Details */}
+          <div className="bg-brand-medium/20 rounded-2xl border border-brand-medium/30 p-4 flex flex-col gap-3">
             <div className="flex justify-between">
-              <span className="text-xs text-slate-500 uppercase font-semibold tracking-wide">Escola</span>
+              <span className="text-xs text-slate-500 uppercase font-semibold tracking-wide">Escola Emissora</span>
               <span className="text-xs font-semibold text-slate-300">{schoolName}</span>
             </div>
             <div className="flex justify-between">
               <span className="text-xs text-slate-500 uppercase font-semibold tracking-wide">Data de Conclusão</span>
-              <span className="text-xs font-semibold text-slate-300">{fmt(prog.completionDate)}</span>
+              <span className="text-xs font-semibold text-slate-300">
+                {prog.completionDate ? new Date(prog.completionDate).toLocaleDateString('pt-BR') : '—'}
+              </span>
             </div>
             <div className="flex justify-between">
               <span className="text-xs text-slate-500 uppercase font-semibold tracking-wide">Anexado em</span>
               <span className="text-xs font-semibold text-slate-300">{fmt(prog.uploadedAt)}</span>
             </div>
-            <div className="flex justify-between items-center">
-              <span className="text-xs text-slate-500 uppercase font-semibold tracking-wide">Certificado</span>
-              <a
-                href={prog.certificateUrl ? (prog.certificateUrl.startsWith('http') ? prog.certificateUrl : `/${prog.certificateUrl}`) : '#'}
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={(e) => {
-                  if (!prog.certificateUrl) {
-                    e.preventDefault();
-                  }
-                }}
-                className="flex items-center gap-1.5 text-xs text-sky-400 font-semibold hover:text-sky-300 hover:underline transition cursor-pointer"
-              >
-                <FileText className="w-3.5 h-3.5" />
-                {prog.certificateUrl}
-              </a>
+            
+            <div className="flex justify-between items-center gap-4">
+              <span className="text-xs text-slate-500 uppercase font-semibold tracking-wide flex-shrink-0">Certificado</span>
+              <div className="flex items-center gap-1.5 overflow-hidden">
+                <a
+                  href={prog.certificateUrl ? (prog.certificateUrl.startsWith('http') ? prog.certificateUrl : `/${prog.certificateUrl}`) : '#'}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={(e) => {
+                    if (!prog.certificateUrl) {
+                      e.preventDefault();
+                    }
+                  }}
+                  className="flex items-center gap-1 text-xs text-sky-400 font-semibold hover:text-sky-300 hover:underline transition cursor-pointer truncate max-w-[140px]"
+                >
+                  <FileText className="w-3.5 h-3.5 flex-shrink-0" />
+                  Abrir
+                </a>
+                {prog.certificateUrl && (
+                  <button
+                    onClick={() => {
+                      const url = prog.certificateUrl!.startsWith('http') ? prog.certificateUrl! : `/${prog.certificateUrl!}`;
+                      downloadFile(url, `certificado_${candidateName.toLowerCase().replace(/\s+/g, '_')}.pdf`);
+                    }}
+                    className="p-1 rounded bg-brand-medium hover:bg-brand-medium/80 text-sky-400 hover:text-sky-300 transition"
+                    title="Baixar Certificado"
+                  >
+                    <Download className="w-3 h-3" />
+                  </button>
+                )}
+              </div>
             </div>
+
             {prog.classSheets && prog.classSheets.length > 0 && (
               <div className="flex flex-col gap-2 pt-2 border-t border-brand-medium/20">
-                <span className="text-xs text-slate-500 uppercase font-semibold tracking-wide">Fichas de Aula</span>
+                <span className="text-xs text-slate-500 uppercase font-semibold tracking-wide font-bold">Fichas de Aula</span>
                 <div className="flex flex-col gap-1.5 pl-2">
                   {prog.classSheets.map((sheet, index) => (
-                    <div key={index} className="flex justify-between items-center">
-                      <span className="text-[11px] text-slate-400">Aula {index + 1}:</span>
-                      <a
-                        href={sheet ? (sheet.startsWith('http') ? sheet : `/${sheet}`) : '#'}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex items-center gap-1 text-[11px] text-sky-400 font-semibold hover:text-sky-300 hover:underline transition cursor-pointer"
-                      >
-                        <FileText className="w-3 h-3" />
-                        {sheet}
-                      </a>
+                    <div key={index} className="flex justify-between items-center gap-4">
+                      <span className="text-[11px] text-slate-400">Ficha {index + 1}:</span>
+                      <div className="flex items-center gap-1.5 overflow-hidden">
+                        <a
+                          href={sheet ? (sheet.startsWith('http') ? sheet : `/${sheet}`) : '#'}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-1 text-[11px] text-sky-400 font-semibold hover:text-sky-300 hover:underline transition cursor-pointer truncate max-w-[140px]"
+                        >
+                          <FileText className="w-3 h-3 flex-shrink-0" />
+                          Abrir
+                        </a>
+                        {sheet && (
+                          <button
+                            onClick={() => {
+                              const url = sheet.startsWith('http') ? sheet : `/${sheet}`;
+                              downloadFile(url, `ficha_aula_${index + 1}_${candidateName.toLowerCase().replace(/\s+/g, '_')}.pdf`);
+                            }}
+                            className="p-1 rounded bg-brand-medium hover:bg-brand-medium/80 text-sky-400 hover:text-sky-300 transition"
+                            title="Baixar Ficha"
+                          >
+                            <Download className="w-3 h-3" />
+                          </button>
+                        )}
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -733,17 +801,27 @@ function CertificateDrawer({ prog, candidateName, onValidate, onReject, onClose,
                     className="w-full h-full object-contain"
                   />
                 )}
-                {/* Overlay link for hover convenience */}
-                <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-all duration-200 pointer-events-none">
+                {/* Hover screen actions */}
+                <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 flex items-center justify-center gap-2 transition-all duration-200 pointer-events-none">
                   <a
                     href={prog.certificateUrl}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="pointer-events-auto px-4 py-2 bg-sky-500 hover:bg-sky-600 text-slate-950 rounded-xl text-xs font-bold transition flex items-center gap-2 shadow-lg"
+                    className="pointer-events-auto px-3 py-1.5 bg-sky-500 hover:bg-sky-600 text-slate-950 rounded-lg text-xs font-bold transition flex items-center gap-1.5 shadow-lg"
                   >
                     <FileText className="w-3.5 h-3.5" />
-                    Abrir em Tela Cheia
+                    Abrir original
                   </a>
+                  <button
+                    onClick={() => {
+                      const url = prog.certificateUrl!.startsWith('http') ? prog.certificateUrl! : `/${prog.certificateUrl!}`;
+                      downloadFile(url, `certificado_${candidateName.toLowerCase().replace(/\s+/g, '_')}.pdf`);
+                    }}
+                    className="pointer-events-auto px-3 py-1.5 bg-brand-medium hover:bg-brand-medium/80 text-sky-400 rounded-lg text-xs font-bold transition flex items-center gap-1.5"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    Baixar
+                  </button>
                 </div>
               </div>
             ) : (
@@ -790,17 +868,45 @@ function CertificateDrawer({ prog, candidateName, onValidate, onReject, onClose,
               </button>
             </>
           ) : (
-            <div className="bg-red-500/5 border border-red-500/20 rounded-xl p-4">
-              <p className="text-sm text-slate-300 font-semibold mb-1 flex items-center gap-2">
-                <AlertTriangle className="w-4 h-4 text-red-400" /> Confirmar rejeição?
-              </p>
-              <p className="text-xs text-slate-500 mb-4">O certificado será removido e a Escola precisará anexar novamente.</p>
+            <div className="bg-red-500/5 border border-red-500/20 rounded-2xl p-4 flex flex-col gap-3">
+              <div>
+                <p className="text-sm text-slate-300 font-semibold mb-1 flex items-center gap-2">
+                  <AlertTriangle className="w-4 h-4 text-red-400" /> Confirmar rejeição?
+                </p>
+                <p className="text-xs text-slate-500">O certificado será removido e a Escola precisará anexar novamente.</p>
+              </div>
+
+              <div>
+                <label className="text-[10px] text-slate-400 uppercase font-semibold tracking-wide block mb-1">
+                  Justificativa da Rejeição (Obrigatorio)
+                </label>
+                <textarea
+                  value={rejectionReason}
+                  onChange={(e) => setRejectionReason(e.target.value)}
+                  placeholder="Escreva aqui por que o certificado foi rejeitado..."
+                  rows={3}
+                  className="w-full bg-brand-medium border border-brand-medium/40 text-slate-200 text-xs rounded-xl p-2 outline-none focus:border-red-500 transition resize-none"
+                />
+              </div>
+
               <div className="flex gap-2">
-                <button onClick={() => setConfirmingReject(false)} className="flex-1 py-2 rounded-lg bg-brand-medium text-slate-300 text-xs font-semibold transition hover:bg-brand-medium/80">
+                <button 
+                  onClick={() => { setConfirmingReject(false); setRejectionReason(''); }} 
+                  className="flex-1 py-2 rounded-lg bg-brand-medium text-slate-300 text-xs font-semibold transition hover:bg-brand-medium/80"
+                >
                   Cancelar
                 </button>
-                <button onClick={onReject} className="flex-1 py-2 rounded-lg bg-red-500 hover:bg-red-600 text-white text-xs font-bold transition">
-                  Sim, Rejeitar
+                <button 
+                  onClick={() => {
+                    if (!rejectionReason.trim()) {
+                      alert('A justificativa é obrigatória para rejeitar um certificado.');
+                      return;
+                    }
+                    onReject(rejectionReason.trim());
+                  }} 
+                  className="flex-1 py-2 rounded-lg bg-red-500 hover:bg-red-600 text-slate-950 text-xs font-bold transition shadow-lg shadow-red-500/20"
+                >
+                  Confirmar Rejeição
                 </button>
               </div>
             </div>
@@ -832,6 +938,7 @@ function AttachModuleModal({ candidateName, moduleCode, schools, defaultSchoolId
   // File upload state
   const [uploading, setUploading] = useState(false);
   const [fileName, setFileName] = useState('');
+  const [uploadingSheets, setUploadingSheets] = useState<Record<number, boolean>>({});
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -842,7 +949,7 @@ function AttachModuleModal({ candidateName, moduleCode, schools, defaultSchoolId
 
     try {
       const fileExt = file.name.split('.').pop();
-      const filePath = `${Date.now()}-${Math.random().toString(36).substring(2, 7)}.${fileExt}`;
+      const filePath = `certificates/${Date.now()}-${Math.random().toString(36).substring(2, 7)}.${fileExt}`;
 
       const { error: uploadError } = await supabase.storage
         .from('certificates')
@@ -863,6 +970,38 @@ function AttachModuleModal({ candidateName, moduleCode, schools, defaultSchoolId
       alert(`Erro no upload: ${err.message}. Mas você pode continuar informando o link manualmente.`);
     } finally {
       setUploading(false);
+    }
+  };
+
+  const handleSheetFileChange = async (index: number, e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setUploadingSheets(prev => ({ ...prev, [index]: true }));
+
+    try {
+      const fileExt = file.name.split('.').pop();
+      const filePath = `sheets/${Date.now()}-${Math.random().toString(36).substring(2, 7)}.${fileExt}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from('certificates')
+        .upload(filePath, file, {
+          cacheControl: '3600',
+          upsert: true
+        });
+
+      if (uploadError) throw uploadError;
+
+      const { data: { publicUrl } } = supabase.storage
+        .from('certificates')
+        .getPublicUrl(filePath);
+
+      updateSheetField(index, publicUrl);
+    } catch (err: any) {
+      console.error('Erro ao fazer upload da ficha:', err);
+      alert(`Erro no upload da ficha: ${err.message}. Mas você pode continuar inserindo o link manualmente.`);
+    } finally {
+      setUploadingSheets(prev => ({ ...prev, [index]: false }));
     }
   };
 
@@ -946,24 +1085,45 @@ function AttachModuleModal({ candidateName, moduleCode, schools, defaultSchoolId
             <label className="text-[11px] text-slate-400 uppercase font-semibold tracking-wide block mb-1.5">
               Fichas de Conclusão de Aula
             </label>
-            <div className="flex flex-col gap-2 max-h-36 overflow-y-auto pr-1">
+            <div className="flex flex-col gap-2 max-h-48 overflow-y-auto pr-1">
               {classSheets.map((sheet, index) => (
                 <div key={index} className="flex gap-2 items-center">
                   <div className="relative flex-1">
-                    <FileText className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
                     <input
-                      type="text"
-                      value={sheet}
-                      onChange={(e) => updateSheetField(index, e.target.value)}
-                      placeholder={`Ficha de aula ${index + 1}`}
-                      className="w-full bg-brand-medium border border-brand-medium/40 text-slate-200 text-sm rounded-xl pl-9 pr-3 py-2.5 outline-none focus:border-brand-accent transition"
+                      type="file"
+                      accept="image/*,application/pdf"
+                      onChange={(e) => handleSheetFileChange(index, e)}
+                      className="hidden"
+                      id={`sheet-file-input-${index}`}
                     />
+                    <label
+                      htmlFor={`sheet-file-input-${index}`}
+                      className="w-full flex items-center justify-between bg-brand-medium border border-brand-medium/40 text-slate-300 text-xs rounded-xl px-3 py-2 cursor-pointer hover:border-brand-accent transition"
+                    >
+                      <span className="truncate max-w-[180px]">
+                        {uploadingSheets[index] ? 'Enviando...' : sheet ? (sheet.startsWith('http') ? 'Ficha Anexada (Ver link abaixo)' : sheet) : `Selecionar Ficha ${index + 1}`}
+                      </span>
+                      {uploadingSheets[index] ? (
+                        <div className="w-3.5 h-3.5 border border-sky-500/20 border-t-sky-500 rounded-full animate-spin" />
+                      ) : (
+                        <Plus className="w-3.5 h-3.5 text-slate-500" />
+                      )}
+                    </label>
+                    {sheet && (
+                      <input
+                        type="text"
+                        value={sheet}
+                        onChange={(e) => updateSheetField(index, e.target.value)}
+                        placeholder="Link da ficha"
+                        className="w-full mt-1 bg-brand-medium/40 border border-brand-medium/20 text-slate-400 text-[10px] rounded-lg px-2 py-1 outline-none"
+                      />
+                    )}
                   </div>
                   {classSheets.length > 1 && (
                     <button
                       type="button"
                       onClick={() => removeSheetField(index)}
-                      className="p-2 rounded-xl bg-red-500/10 hover:bg-red-500 text-red-400 hover:text-slate-950 transition border border-red-500/25"
+                      className="p-2 rounded-xl bg-red-500/10 hover:bg-red-500 text-red-400 hover:text-slate-950 transition border border-red-500/25 self-start"
                     >
                       <X className="w-3.5 h-3.5" />
                     </button>
@@ -1146,9 +1306,10 @@ interface TrainingWorkspaceProps {
   currentUser: User;
   onCompleteModule: (candidateId: string, code: ModuleCode, date: string, cert: string, classSheets: string[], schoolId: string) => void;
   onAdminEditModule: (candidateId: string, code: ModuleCode, status: ModuleStatus, date?: string, cert?: string, classSheets?: string[], schoolId?: string) => void;
+  onRejectModule: (candidateId: string, code: ModuleCode, reason: string) => void;
 }
 
-function TrainingWorkspace({ candidates, modules, schools, currentUser, onCompleteModule, onAdminEditModule }: TrainingWorkspaceProps) {
+function TrainingWorkspace({ candidates, modules, schools, currentUser, onCompleteModule, onAdminEditModule, onRejectModule }: TrainingWorkspaceProps) {
   const [search, setSearch] = useState('');
   const [drawerProg, setDrawerProg] = useState<{ prog: CandidateModuleProgress; candidateName: string } | null>(null);
   const [attachModal, setAttachModal] = useState<{ candidateId: string; code: ModuleCode; candidateName: string; schoolId: string } | null>(null);
@@ -1310,7 +1471,10 @@ function TrainingWorkspace({ candidates, modules, schools, currentUser, onComple
             }
             setDrawerProg(null);
           }}
-          onReject={() => setDrawerProg(null)}
+          onReject={async (reason: string) => {
+            await onRejectModule(drawerProg.prog.candidateId, drawerProg.prog.moduleCode, reason);
+            setDrawerProg(null);
+          }}
           onClose={() => setDrawerProg(null)}
           schools={schools}
         />
@@ -1480,7 +1644,7 @@ function KanbanCard({ candidate: c, modules, currentUser, onMove, onUpdateGupy, 
           ) : c.selectionStatus === 'rejected' ? (
             <div className="flex flex-col gap-2">
               {!passed ? (
-                <div className="px-2 py-1.5 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-[10px] font-bold text-center flex items-center justify-center gap-1.5 animate-pulse">
+                <div className="px-2 py-1.5 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-[10px] font-bold text-center flex items-center justify-center gap-1.5">
                   <Clock className="w-3.5 h-3.5" /> Quarentena: {remainingStr}
                 </div>
               ) : (
@@ -1490,6 +1654,25 @@ function KanbanCard({ candidate: c, modules, currentUser, onMove, onUpdateGupy, 
                 >
                   Reiniciar Processo
                 </button>
+              )}
+              {currentUser.role === 'admin' && (
+                <div className="flex flex-col gap-1 mt-1 pt-1 border-t border-brand-medium/20">
+                  <p className="text-[9px] text-slate-500 font-bold uppercase mb-1">Mover manualmente:</p>
+                  <div className="flex gap-1">
+                    <button
+                      onClick={() => onMove(c.id, 'in_selection')}
+                      className="flex-1 py-1 rounded-lg text-[9px] font-bold text-sky-400 border border-sky-500/25 hover:bg-sky-500/10 transition cursor-pointer"
+                    >
+                      Mover p/ P.S.
+                    </button>
+                    <button
+                      onClick={() => onMove(c.id, 'finalized')}
+                      className="flex-1 py-1 rounded-lg text-[9px] font-bold text-slate-300 border border-brand-medium/60 hover:bg-brand-medium/60 transition cursor-pointer"
+                    >
+                      Mover p/ Finalizou
+                    </button>
+                  </div>
+                </div>
               )}
             </div>
           ) : (
@@ -2788,6 +2971,13 @@ export default function App() {
     }
   };
 
+  const handleRejectModule = async (candidateId: string, code: ModuleCode, reason: string) => {
+    if (!currentUser) return;
+    const res = await stateMachine.rejectModule(candidateId, code, reason, currentUser);
+    if (!res.success) alert(res.message);
+    else await refresh();
+  };
+
   const handleMoveKanban = async (id: string, status: SelectionStatus) => {
     if (!currentUser) return;
     if (status === 'in_selection') {
@@ -3086,6 +3276,7 @@ export default function App() {
               currentUser={currentUser}
               onCompleteModule={handleCompleteModule}
               onAdminEditModule={handleAdminEditModule}
+              onRejectModule={handleRejectModule}
             />
           )}
           {activeWorkspace === 'selection' && (

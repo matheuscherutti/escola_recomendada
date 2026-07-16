@@ -52,6 +52,7 @@ export interface CandidateModuleProgress {
   certificateUrl?: string;
   classSheets?: string[];
   uploadedAt?: string;
+  rejectionReason?: string;
   updatedBy?: string;
   updatedAt: string;
 }
@@ -386,6 +387,7 @@ const mapModuleToTS = (row: any): CandidateModuleProgress => ({
   certificateUrl: row.certificate_url || undefined,
   classSheets: row.class_sheets || undefined,
   uploadedAt: row.uploaded_at || undefined,
+  rejectionReason: row.rejection_reason || undefined,
   updatedBy: row.updated_by || undefined,
   updatedAt: row.updated_at
 });
@@ -400,6 +402,7 @@ const mapModuleToDb = (m: CandidateModuleProgress) => ({
   certificate_url: m.certificateUrl || null,
   class_sheets: m.classSheets || null,
   uploaded_at: m.uploadedAt || null,
+  rejection_reason: m.rejectionReason || null,
   updated_by: m.updatedBy || null,
   updated_at: m.updatedAt
 });
