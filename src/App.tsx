@@ -2426,11 +2426,24 @@ export default function App() {
 
   const handleResetPassword = async (schoolUserId: string) => {
     if (!currentUser) return;
-    const res = await stateMachine.resetPassword(schoolUserId, currentUser);
-    if (!res.success) alert(res.message);
-    else {
-      alert(res.message);
+    
+    const confirmReset = window.confirm(
+      "Deseja realmente redefinir a senha deste usuário para o padrão 'crpazul1234*'?"
+    );
+    if (!confirmReset) return;
+
+    try {
+      const { error } = await supabase.rpc('reset_user_password_admin', { 
+        user_id: schoolUserId, 
+        new_password: 'crpazul1234*' 
+      });
+
+      if (error) throw error;
       await refresh();
+      alert('Senha redefinida com sucesso para o padrão: crpazul1234*');
+    } catch (err: any) {
+      console.error(err);
+      alert(`Erro ao redefinir senha: ${err.message}`);
     }
   };
 

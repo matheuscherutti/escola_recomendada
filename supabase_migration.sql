@@ -184,3 +184,19 @@ CREATE POLICY "Update own notifications" ON notifications FOR UPDATE
     recipient_school_id = get_user_school_id() OR 
     (recipient_role = 'admin' AND is_admin())
   );
+
+-- 13. Função para Redefinição Direta de Senha pelo Administrador (Ignora Limites de SMTP/E-mail)
+CREATE OR REPLACE FUNCTION public.reset_user_password_admin(user_id UUID, new_password TEXT)
+RETURNS void AS $$
+BEGIN
+  -- Apenas admins podem executar (segurança de nível de banco de dados)
+  IF NOT EXISTS (SELECT 1 FROM public.users WHERE id = auth.uid() AND role = 'admin') THEN
+    RAISE EXCEPTION 'Acesso negado. Apenas administradores podem redefinir senhas.';
+  END IF;
+
+  UPDATE auth.users 
+  SET encrypted_password = crypt(new_password, gen_salt('bf'))
+  WHERE id = user_id;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
