@@ -40,10 +40,11 @@ CREATE TABLE candidates (
     anac TEXT UNIQUE NOT NULL,
     school_id TEXT REFERENCES schools(id) NOT NULL,
     status TEXT NOT NULL CHECK (status IN ('pending_validation', 'rejected', 'in_progress', 'completed')),
-    selection_status TEXT NOT NULL CHECK (selection_status IN ('finalized', 'in_selection', 'hired')),
-    gupy_status TEXT CHECK (gupy_status IN ('gupy_min', 'gupy_no_min', 'not_gupy')),
+    selection_status TEXT NOT NULL CHECK (selection_status IN ('finalized', 'in_selection', 'hired', 'rejected')),
+    gupy_status TEXT CHECK (gupy_status IN ('gupy_min', 'gupy_no_min', 'not_gupy', 'gupy_pending')),
     validated_by UUID REFERENCES users(id) ON DELETE SET NULL,
     validated_at TIMESTAMP WITH TIME ZONE,
+    rejected_at TIMESTAMP WITH TIME ZONE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
@@ -203,4 +204,22 @@ BEGIN
   WHERE id = user_id;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- 14. Bucket de Armazenamento e Políticas de Acesso para Certificados
+INSERT INTO storage.buckets (id, name, public) 
+VALUES ('certificates', 'certificates', true)
+ON CONFLICT (id) DO NOTHING;
+
+-- Política para permitir acesso público de leitura
+CREATE POLICY "Allow public read access to certificates" ON storage.objects FOR SELECT 
+  USING (bucket_id = 'certificates');
+
+-- Política para permitir inserção/upload de certificados para qualquer usuário autenticado
+CREATE POLICY "Allow insert upload for authenticated users on certificates" ON storage.objects FOR INSERT 
+  WITH CHECK (bucket_id = 'certificates');
+
+-- Política para permitir atualização/substituição de certificados
+CREATE POLICY "Allow update for authenticated users on certificates" ON storage.objects FOR UPDATE 
+  USING (bucket_id = 'certificates');
+
 

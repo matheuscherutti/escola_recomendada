@@ -49,7 +49,7 @@ import {
 // ─────────────────────────────────────────────────────────────────────────────
 // TYPES
 // ─────────────────────────────────────────────────────────────────────────────
-type WorkspaceId = 'validation' | 'training' | 'selection' | 'config';
+type WorkspaceId = 'validation' | 'training' | 'selection' | 'config' | 'dashboard';
 type ValidationFilter = 'pending' | 'approved' | 'rejected';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -158,7 +158,7 @@ function NotificationDropdown({
   };
 
   return (
-    <div ref={ref} className="absolute right-0 bottom-full mb-2 w-96 bg-brand-dark border border-brand-medium/40 rounded-2xl shadow-2xl shadow-black/80 overflow-hidden z-50">
+    <div ref={ref} className="absolute left-0 bottom-full mb-2 w-80 bg-brand-dark border border-brand-medium/40 rounded-2xl shadow-2xl shadow-black/80 overflow-hidden z-50">
       <div className="px-4 py-3 border-b border-brand-medium/30 flex justify-between items-center">
         <div className="flex items-center gap-2">
           <Bell className="w-4 h-4 text-sky-400" />
@@ -219,9 +219,14 @@ function NavigationSidebar({
   const unread = notifications.filter((n) => !n.isRead).length;
 
   const navItems: { id: WorkspaceId; label: string; icon: React.ReactNode; badge?: number }[] = [
+    ...(currentUser.role === 'admin' ? [
+      { id: 'dashboard' as WorkspaceId, label: 'Dashboard', icon: <TrendingUp className="w-5 h-5" /> }
+    ] : []),
     { id: 'validation', label: 'Validação', icon: <ShieldCheck className="w-5 h-5" />, badge: pendingCount },
     { id: 'training',   label: 'Treinamento', icon: <GraduationCap className="w-5 h-5" /> },
-    { id: 'selection',  label: 'Processo Seletivo', icon: <Trophy className="w-5 h-5" />, badge: completedCount },
+    ...(currentUser.role === 'admin' ? [
+      { id: 'selection' as WorkspaceId, label: 'Processo Seletivo', icon: <Trophy className="w-5 h-5" />, badge: completedCount }
+    ] : []),
     { id: 'config',     label: 'Configurações', icon: <Settings className="w-5 h-5" /> },
   ];
 
@@ -673,7 +678,7 @@ function CertificateDrawer({ prog, candidateName, onValidate, onReject, onClose,
             <div className="flex justify-between items-center">
               <span className="text-xs text-slate-500 uppercase font-semibold tracking-wide">Certificado</span>
               <a
-                href={prog.certificateUrl ? `/${prog.certificateUrl}` : '#'}
+                href={prog.certificateUrl ? (prog.certificateUrl.startsWith('http') ? prog.certificateUrl : `/${prog.certificateUrl}`) : '#'}
                 target="_blank"
                 rel="noopener noreferrer"
                 onClick={(e) => {
@@ -695,7 +700,7 @@ function CertificateDrawer({ prog, candidateName, onValidate, onReject, onClose,
                     <div key={index} className="flex justify-between items-center">
                       <span className="text-[11px] text-slate-400">Aula {index + 1}:</span>
                       <a
-                        href={`/${sheet}`}
+                        href={sheet ? (sheet.startsWith('http') ? sheet : `/${sheet}`) : '#'}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="flex items-center gap-1 text-[11px] text-sky-400 font-semibold hover:text-sky-300 hover:underline transition cursor-pointer"
@@ -720,7 +725,7 @@ function CertificateDrawer({ prog, candidateName, onValidate, onReject, onClose,
                 <p className="text-xs text-slate-500 mt-1">Visualizador PDF (simulado)</p>
               </div>
               <a
-                href={prog.certificateUrl ? `/${prog.certificateUrl}` : '#'}
+                href={prog.certificateUrl ? (prog.certificateUrl.startsWith('http') ? prog.certificateUrl : `/${prog.certificateUrl}`) : '#'}
                 target="_blank"
                 rel="noopener noreferrer"
                 onClick={(e) => {
@@ -794,6 +799,43 @@ function AttachModuleModal({ candidateName, moduleCode, schools, defaultSchoolId
   const [selectedSchoolId, setSelectedSchoolId] = useState(defaultSchoolId || (schools[0]?.id || ''));
   const [classSheets, setClassSheets] = useState<string[]>(['']);
 
+  // File upload state
+  const [uploading, setUploading] = useState(false);
+  const [fileName, setFileName] = useState('');
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setUploading(true);
+    setFileName(file.name);
+
+    try {
+      const fileExt = file.name.split('.').pop();
+      const filePath = `${Date.now()}-${Math.random().toString(36).substring(2, 7)}.${fileExt}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from('certificates')
+        .upload(filePath, file, {
+          cacheControl: '3600',
+          upsert: true
+        });
+
+      if (uploadError) throw uploadError;
+
+      const { data: { publicUrl } } = supabase.storage
+        .from('certificates')
+        .getPublicUrl(filePath);
+
+      setCertName(publicUrl);
+    } catch (err: any) {
+      console.error('Erro ao fazer upload:', err);
+      alert(`Erro no upload: ${err.message}. Mas você pode continuar informando o link manualmente.`);
+    } finally {
+      setUploading(false);
+    }
+  };
+
   const addSheetField = () => setClassSheets([...classSheets, '']);
   const removeSheetField = (index: number) => setClassSheets(classSheets.filter((_, i) => i !== index));
   const updateSheetField = (index: number, val: string) => {
@@ -836,13 +878,38 @@ function AttachModuleModal({ candidateName, moduleCode, schools, defaultSchoolId
           </div>
           <div>
             <label className="text-[11px] text-slate-400 uppercase font-semibold tracking-wide block mb-1.5">
-              Nome do Certificado (PDF)
+              Certificado (Upload de PDF ou Imagem)
             </label>
-            <div className="relative">
-              <FileText className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
-              <input type="text" value={certName} onChange={(e) => setCertName(e.target.value)}
-                placeholder="cert_modulo.pdf"
-                className="w-full bg-brand-medium border border-brand-medium/40 text-slate-200 text-sm rounded-xl pl-9 pr-3 py-2.5 outline-none focus:border-brand-accent transition" />
+            <div className="flex flex-col gap-2">
+              <input
+                type="file"
+                accept="image/*,application/pdf"
+                onChange={handleFileChange}
+                className="hidden"
+                id="cert-file-input"
+              />
+              <label
+                htmlFor="cert-file-input"
+                className="w-full flex items-center justify-center gap-2 bg-brand-medium/50 hover:bg-brand-medium hover:text-slate-200 border border-dashed border-brand-medium/60 text-slate-400 text-xs rounded-xl px-4 py-3 cursor-pointer transition-all duration-200"
+              >
+                {uploading ? (
+                  <div className="w-4 h-4 border-2 border-sky-500/20 border-t-sky-500 rounded-full animate-spin" />
+                ) : (
+                  <Plus className="w-4 h-4" />
+                )}
+                {uploading ? 'Enviando arquivo...' : fileName ? `Substituir: ${fileName}` : 'Selecionar Arquivo PDF ou Imagem'}
+              </label>
+              
+              <div className="relative mt-1">
+                <FileText className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  value={certName}
+                  onChange={(e) => setCertName(e.target.value)}
+                  placeholder="Nome do certificado ou URL"
+                  className="w-full bg-brand-medium border border-brand-medium/40 text-slate-300 text-[10px] rounded-xl pl-9 pr-3 py-2.5 outline-none focus:border-brand-accent transition"
+                />
+              </div>
             </div>
           </div>
           <div>
@@ -1260,22 +1327,59 @@ interface KanbanCardProps {
   onMove: (id: string, status: SelectionStatus) => void;
   onUpdateGupy: (id: string, gupyStatus: GupyStatus) => void;
   schools: School[];
+  onResetCandidate?: (id: string) => void;
 }
 
-function KanbanCard({ candidate: c, modules, currentUser, onMove, onUpdateGupy, schools }: KanbanCardProps) {
+function KanbanCard({ candidate: c, modules, currentUser, onMove, onUpdateGupy, schools, onResetCandidate }: KanbanCardProps) {
   const schoolName = schools.find((s) => s.id === c.schoolId)?.name ?? '—';
   const lastMod = modules.filter((m) => m.candidateId === c.id && m.status === 'completed')
     .sort((a, b) => new Date(b.uploadedAt ?? '').getTime() - new Date(a.uploadedAt ?? '').getTime())[0];
 
   const getGupyBadge = (status?: GupyStatus) => {
+    if (status === 'gupy_pending') {
+      return <span className="inline-flex items-center px-1.5 py-0.5 rounded-md text-[9px] font-bold bg-amber-500/10 text-amber-400 border border-amber-500/20">Gupy: Pendente</span>;
+    }
     if (!status || status === 'not_gupy') {
       return <span className="inline-flex items-center px-1.5 py-0.5 rounded-md text-[9px] font-bold bg-slate-500/10 text-slate-400 border border-slate-500/20">Não está na Gupy</span>;
     }
     if (status === 'gupy_min') {
       return <span className="inline-flex items-center px-1.5 py-0.5 rounded-md text-[9px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">Gupy: Com Mínimos</span>;
     }
-    return <span className="inline-flex items-center px-1.5 py-0.5 rounded-md text-[9px] font-bold bg-amber-500/10 text-amber-400 border border-amber-500/20">Gupy: Sem Mínimos</span>;
+    return <span className="inline-flex items-center px-1.5 py-0.5 rounded-md text-[9px] font-bold bg-rose-500/10 text-rose-400 border border-rose-500/20">Gupy: Sem Mínimos</span>;
   };
+
+  const checkQuarantine = (rejectedAtStr?: string) => {
+    if (!rejectedAtStr) return { passed: true, remainingStr: '' };
+    const rejectedAt = new Date(rejectedAtStr);
+    const now = new Date();
+    
+    // Calculate date 6 months from rejectedAt
+    const unlockDate = new Date(rejectedAt);
+    unlockDate.setMonth(unlockDate.getMonth() + 6);
+    
+    const diffMs = unlockDate.getTime() - now.getTime();
+    if (diffMs <= 0) {
+      return { passed: true, remainingStr: '' };
+    }
+    
+    // Calculate remaining time in months and days
+    const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+    const months = Math.floor(diffDays / 30);
+    const days = diffDays % 30;
+    
+    let remainingStr = '';
+    if (months > 0) {
+      remainingStr += `${months} ${months === 1 ? 'mês' : 'meses'}`;
+    }
+    if (days > 0) {
+      if (remainingStr) remainingStr += ' e ';
+      remainingStr += `${days} ${days === 1 ? 'dia' : 'dias'}`;
+    }
+    
+    return { passed: false, remainingStr };
+  };
+
+  const { passed, remainingStr } = checkQuarantine(c.rejectedAt);
 
   return (
     <div className="bg-brand-dark rounded-xl border border-brand-medium/40 p-4 flex flex-col gap-3 hover:border-brand-accent hover:shadow-lg hover:shadow-black/30 transition-all duration-200 group">
@@ -1299,10 +1403,11 @@ function KanbanCard({ candidate: c, modules, currentUser, onMove, onUpdateGupy, 
         <div className="flex flex-col gap-1.5 pt-2 border-t border-brand-medium/30">
           <label className="text-[9px] text-slate-500 uppercase font-bold tracking-wide">Status na Gupy</label>
           <select
-            value={c.gupyStatus || 'not_gupy'}
+            value={c.gupyStatus || 'gupy_pending'}
             onChange={(e) => onUpdateGupy(c.id, e.target.value as GupyStatus)}
             className="w-full bg-brand-medium border border-brand-medium/40 text-slate-300 text-[11px] rounded-lg px-2 py-1.5 outline-none focus:border-brand-accent transition cursor-pointer"
           >
+            <option value="gupy_pending">Pendente</option>
             <option value="not_gupy">Não está na Gupy</option>
             <option value="gupy_min">Na Gupy e tem os mínimos</option>
             <option value="gupy_no_min">Na Gupy e NÃO tem os mínimos</option>
@@ -1320,19 +1425,42 @@ function KanbanCard({ candidate: c, modules, currentUser, onMove, onUpdateGupy, 
               Iniciar Proc. Seletivo
             </button>
           ) : c.selectionStatus === 'in_selection' ? (
-            <div className="flex gap-2">
+            <div className="flex flex-col gap-2">
+              <div className="flex gap-2">
+                <button
+                  onClick={() => onMove(c.id, 'finalized')}
+                  className="flex-1 py-1.5 rounded-lg text-[10px] font-semibold text-slate-400 border border-brand-medium/40 hover:bg-brand-medium/60 hover:text-slate-200 transition cursor-pointer flex items-center justify-center gap-0.5"
+                >
+                  <ChevronLeft className="w-3 h-3" /> Voltar
+                </button>
+                <button
+                  onClick={() => onMove(c.id, 'hired')}
+                  className="flex-1 py-1.5 rounded-lg text-[10px] font-bold text-emerald-400 border border-emerald-500/25 hover:bg-emerald-500/10 transition cursor-pointer"
+                >
+                  Contratar
+                </button>
+              </div>
               <button
-                onClick={() => onMove(c.id, 'finalized')}
-                className="flex-1 py-1.5 rounded-lg text-[10px] font-semibold text-slate-400 border border-brand-medium/40 hover:bg-brand-medium/60 hover:text-slate-200 transition cursor-pointer flex items-center justify-center gap-0.5"
+                onClick={() => onMove(c.id, 'rejected')}
+                className="w-full py-1.5 rounded-lg text-[10px] font-bold text-red-400 border border-red-500/25 hover:bg-red-500/10 hover:text-red-300 transition cursor-pointer"
               >
-                <ChevronLeft className="w-3 h-3" /> Voltar
+                Reprovar Candidato
               </button>
-              <button
-                onClick={() => onMove(c.id, 'hired')}
-                className="flex-1 py-1.5 rounded-lg text-[10px] font-bold text-emerald-400 border border-emerald-500/25 hover:bg-emerald-500/10 transition cursor-pointer"
-              >
-                Contratar
-              </button>
+            </div>
+          ) : c.selectionStatus === 'rejected' ? (
+            <div className="flex flex-col gap-2">
+              {!passed ? (
+                <div className="px-2 py-1.5 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-[10px] font-bold text-center flex items-center justify-center gap-1.5 animate-pulse">
+                  <Clock className="w-3.5 h-3.5" /> Quarentena: {remainingStr}
+                </div>
+              ) : (
+                <button
+                  onClick={() => onResetCandidate && onResetCandidate(c.id)}
+                  className="w-full py-1.5 rounded-lg text-[10px] font-bold text-amber-400 border border-amber-500/25 hover:bg-amber-500/10 hover:text-amber-300 transition cursor-pointer"
+                >
+                  Reiniciar Processo
+                </button>
+              )}
             </div>
           ) : (
             <button
@@ -1358,15 +1486,17 @@ interface SelectionWorkspaceProps {
   onMove: (id: string, status: SelectionStatus) => void;
   onUpdateGupy: (id: string, gupyStatus: GupyStatus) => void;
   schools: School[];
+  onResetCandidate: (id: string) => void;
 }
 
 const KANBAN_COLUMNS: { id: SelectionStatus; label: string; sublabel: string; colorClass: string; badgeClass: string }[] = [
   { id: 'finalized', label: 'Finalizou', sublabel: 'Treinamento concluído com sucesso', colorClass: 'border-brand-medium/40 bg-brand-medium/10', badgeClass: 'bg-brand-medium/60 text-slate-400' },
-  { id: 'in_selection', label: 'Processo Seletivo', sublabel: 'Convocado para selection', colorClass: 'border-brand-accent/15 bg-brand-accent/3', badgeClass: 'bg-brand-accent/20 text-sky-400' },
+  { id: 'in_selection', label: 'Processo Seletivo', sublabel: 'Convocado para seleção', colorClass: 'border-brand-accent/15 bg-brand-accent/3', badgeClass: 'bg-brand-accent/20 text-sky-400' },
   { id: 'hired', label: 'Contratado', sublabel: 'Candidatos contratados', colorClass: 'border-emerald-500/15 bg-emerald-500/3', badgeClass: 'bg-emerald-500/20 text-emerald-400' },
+  { id: 'rejected', label: 'Reprovado', sublabel: 'Em quarentena (6 meses)', colorClass: 'border-rose-500/15 bg-rose-500/3', badgeClass: 'bg-rose-500/20 text-rose-400' },
 ];
 
-function SelectionWorkspace({ candidates, modules, currentUser, onMove, onUpdateGupy, schools }: SelectionWorkspaceProps) {
+function SelectionWorkspace({ candidates, modules, currentUser, onMove, onUpdateGupy, schools, onResetCandidate }: SelectionWorkspaceProps) {
   const completed = candidates.filter((c) => {
     const matchesRole = currentUser.role === 'admin' || c.schoolId === currentUser.schoolId;
     return matchesRole && c.status === 'completed';
@@ -1394,7 +1524,7 @@ function SelectionWorkspace({ candidates, modules, currentUser, onMove, onUpdate
           <p className="text-sm opacity-60">Candidatos que concluírem 100% do treinamento aparecerão aqui.</p>
         </div>
       ) : (
-        <div className="grid grid-cols-3 gap-5">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-5">
           {KANBAN_COLUMNS.map((col) => {
             const cards = completed.filter((c) => c.selectionStatus === col.id);
             return (
@@ -1417,7 +1547,7 @@ function SelectionWorkspace({ candidates, modules, currentUser, onMove, onUpdate
                     </div>
                   ) : (
                     cards.map((c) => (
-                      <KanbanCard key={c.id} candidate={c} modules={modules} currentUser={currentUser} onMove={onMove} onUpdateGupy={onUpdateGupy} schools={schools} />
+                      <KanbanCard key={c.id} candidate={c} modules={modules} currentUser={currentUser} onMove={onMove} onUpdateGupy={onUpdateGupy} schools={schools} onResetCandidate={onResetCandidate} />
                     ))
                   )}
                 </div>
@@ -2139,6 +2269,314 @@ function SchoolSettingsWorkspace({ onChangePassword }: SchoolSettingsWorkspacePr
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// WORKSPACE 5 — DASHBOARD
+// ─────────────────────────────────────────────────────────────────────────────
+interface DashboardWorkspaceProps {
+  candidates: Candidate[];
+  modules: CandidateModuleProgress[];
+  schools: School[];
+}
+
+function DashboardWorkspace({ candidates, modules, schools }: DashboardWorkspaceProps) {
+  const [selectedSchoolId, setSelectedSchoolId] = useState<string>('all');
+
+  // Filter candidates based on selected school
+  const filteredCandidates = selectedSchoolId === 'all'
+    ? candidates
+    : candidates.filter(c => c.schoolId === selectedSchoolId);
+
+  const total = filteredCandidates.length;
+  const pendingValidation = filteredCandidates.filter(c => c.status === 'pending_validation').length;
+  const inTraining = filteredCandidates.filter(c => c.status === 'in_progress').length;
+  const completed = filteredCandidates.filter(c => c.status === 'completed').length;
+  const rejectedValidation = filteredCandidates.filter(c => c.status === 'rejected').length;
+  
+  // Selection status
+  const inSelection = filteredCandidates.filter(c => c.status === 'completed' && c.selectionStatus === 'in_selection').length;
+  const hired = filteredCandidates.filter(c => c.status === 'completed' && c.selectionStatus === 'hired').length;
+  const selectionRejected = filteredCandidates.filter(c => c.status === 'completed' && c.selectionStatus === 'rejected').length;
+
+  // Success metrics
+  const trainingSuccessRate = total > 0 ? Math.round((completed / Math.max(1, total - pendingValidation - rejectedValidation)) * 100) : 0;
+  const hiringRate = completed > 0 ? Math.round((hired / completed) * 100) : 0;
+
+  // Module Completion Counters (among candidates currently in progress or completed)
+  const candidateIds = filteredCandidates.map(c => c.id);
+  const relevantModules = modules.filter(m => candidateIds.includes(m.candidateId));
+  const teoricoDone = relevantModules.filter(m => m.moduleCode === 'TEORICO' && m.status === 'completed').length;
+  const simuladorDone = relevantModules.filter(m => m.moduleCode === 'SIMULADOR' && m.status === 'completed').length;
+  const vooDone = relevantModules.filter(m => m.moduleCode === 'VOO' && m.status === 'completed').length;
+
+  // Average time to complete training (in days)
+  const completedCands = filteredCandidates.filter(c => c.status === 'completed' && c.validatedAt);
+  let avgDays = 0;
+  if (completedCands.length > 0) {
+    const totalDays = completedCands.reduce((acc, c) => {
+      const start = new Date(c.validatedAt!).getTime();
+      // Find the latest completed module upload date
+      const candMods = modules.filter(m => m.candidateId === c.id && m.status === 'completed' && m.uploadedAt);
+      if (candMods.length > 0) {
+        const latestUpload = Math.max(...candMods.map(m => new Date(m.uploadedAt!).getTime()));
+        return acc + (latestUpload - start) / (1000 * 60 * 60 * 24);
+      }
+      return acc;
+    }, 0);
+    avgDays = Math.round(totalDays / completedCands.length);
+  }
+
+  // School ranking (only if 'all' is selected)
+  const schoolRanking = schools.map(s => {
+    const count = candidates.filter(c => c.schoolId === s.id && c.status === 'completed').length;
+    const totalSchool = candidates.filter(c => c.schoolId === s.id).length;
+    return { name: s.name, completedCount: count, total: totalSchool };
+  }).sort((a, b) => b.completedCount - a.completedCount);
+
+  return (
+    <div className="animate-fade-in flex flex-col gap-6">
+      {/* Header with Selector */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+          <h2 className="text-xl font-bold text-slate-100 flex items-center gap-2">
+            <TrendingUp className="w-6 h-6 text-sky-400" />
+            Painel de Estatísticas
+          </h2>
+          <p className="text-sm text-slate-500 mt-1">Monitore indicadores de desempenho, progresso e contratações</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <label className="text-xs text-slate-400 font-medium">Filtrar por Escola:</label>
+          <select
+            value={selectedSchoolId}
+            onChange={(e) => setSelectedSchoolId(e.target.value)}
+            className="bg-brand-dark border border-brand-medium/40 text-slate-300 text-xs rounded-xl px-3 py-2 outline-none focus:border-brand-accent transition cursor-pointer"
+          >
+            <option value="all">Todas as Escolas</option>
+            {schools.map(s => (
+              <option key={s.id} value={s.id}>{s.name}</option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      {/* Stats Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        {/* Card 1 */}
+        <div className="bg-gradient-to-br from-brand-dark to-brand-darkest border border-brand-medium/40 rounded-2xl p-5 flex flex-col justify-between min-h-[120px] relative overflow-hidden group hover:border-brand-accent/50 transition">
+          <div className="absolute top-0 right-0 w-24 h-24 bg-sky-500/5 rounded-full blur-2xl group-hover:bg-sky-500/10 transition" />
+          <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Candidatos Cadastrados</p>
+          <div className="flex items-baseline justify-between mt-4">
+            <span className="text-3xl font-black text-slate-100">{total}</span>
+            <span className="text-xs text-slate-400 font-medium">{pendingValidation} pendentes</span>
+          </div>
+        </div>
+
+        {/* Card 2 */}
+        <div className="bg-gradient-to-br from-brand-dark to-brand-darkest border border-brand-medium/40 rounded-2xl p-5 flex flex-col justify-between min-h-[120px] relative overflow-hidden group hover:border-brand-accent/50 transition">
+          <div className="absolute top-0 right-0 w-24 h-24 bg-amber-500/5 rounded-full blur-2xl group-hover:bg-amber-500/10 transition" />
+          <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Em Treinamento</p>
+          <div className="flex items-baseline justify-between mt-4">
+            <span className="text-3xl font-black text-slate-100">{inTraining}</span>
+            <span className="text-xs text-slate-400 font-medium">Cursando os módulos</span>
+          </div>
+        </div>
+
+        {/* Card 3 */}
+        <div className="bg-gradient-to-br from-brand-dark to-brand-darkest border border-brand-medium/40 rounded-2xl p-5 flex flex-col justify-between min-h-[120px] relative overflow-hidden group hover:border-brand-accent/50 transition">
+          <div className="absolute top-0 right-0 w-24 h-24 bg-emerald-500/5 rounded-full blur-2xl group-hover:bg-emerald-500/10 transition" />
+          <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Treinamento Concluído</p>
+          <div className="flex items-baseline justify-between mt-4">
+            <span className="text-3xl font-black text-slate-100">{completed}</span>
+            <span className="text-xs text-emerald-400 font-bold bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">{trainingSuccessRate}% sucesso</span>
+          </div>
+        </div>
+
+        {/* Card 4 */}
+        <div className="bg-gradient-to-br from-brand-dark to-brand-darkest border border-brand-medium/40 rounded-2xl p-5 flex flex-col justify-between min-h-[120px] relative overflow-hidden group hover:border-brand-accent/50 transition">
+          <div className="absolute top-0 right-0 w-24 h-24 bg-brand-gold/5 rounded-full blur-2xl group-hover:bg-brand-gold/10 transition" />
+          <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Pilotos Contratados</p>
+          <div className="flex items-baseline justify-between mt-4">
+            <span className="text-3xl font-black text-slate-100">{hired}</span>
+            <span className="text-xs text-brand-gold font-bold bg-brand-gold/10 px-2 py-0.5 rounded-full border border-brand-gold/20">{hiringRate}% contratação</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Main Charts area */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        {/* Module Progression */}
+        <div className="bg-brand-dark border border-brand-medium/40 rounded-2xl p-5 md:col-span-2 flex flex-col gap-6">
+          <div>
+            <h3 className="font-bold text-slate-200 text-sm">Conclusão de Módulos</h3>
+            <p className="text-xs text-slate-500 mt-1">Quantidade de pilotos que finalizaram cada fase obrigatória</p>
+          </div>
+          <div className="flex flex-col gap-5 py-2">
+            {/* Teórico */}
+            <div className="flex flex-col gap-2">
+              <div className="flex justify-between items-center text-xs">
+                <span className="font-bold text-slate-300 flex items-center gap-2">
+                  <BookOpen className="w-4 h-4 text-sky-400" /> Módulo Teórico
+                </span>
+                <span className="font-mono text-slate-400 font-bold">{teoricoDone} / {inTraining + completed} concluídos</span>
+              </div>
+              <div className="w-full bg-brand-medium/30 rounded-full h-3 overflow-hidden">
+                <div 
+                  className="h-full bg-gradient-to-r from-sky-500 to-sky-400 rounded-full transition-all duration-1000"
+                  style={{ width: `${(inTraining + completed) > 0 ? (teoricoDone / (inTraining + completed)) * 100 : 0}%` }}
+                />
+              </div>
+            </div>
+
+            {/* Simulador */}
+            <div className="flex flex-col gap-2">
+              <div className="flex justify-between items-center text-xs">
+                <span className="font-bold text-slate-300 flex items-center gap-2">
+                  <Monitor className="w-4 h-4 text-indigo-400" /> Módulo Simulador
+                </span>
+                <span className="font-mono text-slate-400 font-bold">{simuladorDone} / {inTraining + completed} concluídos</span>
+              </div>
+              <div className="w-full bg-brand-medium/30 rounded-full h-3 overflow-hidden">
+                <div 
+                  className="h-full bg-gradient-to-r from-indigo-500 to-indigo-400 rounded-full transition-all duration-1000"
+                  style={{ width: `${(inTraining + completed) > 0 ? (simuladorDone / (inTraining + completed)) * 100 : 0}%` }}
+                />
+              </div>
+            </div>
+
+            {/* Voo */}
+            <div className="flex flex-col gap-2">
+              <div className="flex justify-between items-center text-xs">
+                <span className="font-bold text-slate-300 flex items-center gap-2">
+                  <Plane className="w-4 h-4 text-emerald-400" /> Prática de Voo
+                </span>
+                <span className="font-mono text-slate-400 font-bold">{vooDone} / {inTraining + completed} concluídos</span>
+              </div>
+              <div className="w-full bg-brand-medium/30 rounded-full h-3 overflow-hidden">
+                <div 
+                  className="h-full bg-gradient-to-r from-emerald-500 to-emerald-400 rounded-full transition-all duration-1000"
+                  style={{ width: `${(inTraining + completed) > 0 ? (vooDone / (inTraining + completed)) * 100 : 0}%` }}
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Training Performance Time */}
+        <div className="bg-brand-dark border border-brand-medium/40 rounded-2xl p-5 flex flex-col gap-6">
+          <div>
+            <h3 className="font-bold text-slate-200 text-sm">Tempo de Treinamento</h3>
+            <p className="text-xs text-slate-500 mt-1">Duração média para concluir as 3 fases</p>
+          </div>
+          <div className="flex-1 flex flex-col items-center justify-center gap-4 text-center py-4">
+            <div className="w-28 h-28 rounded-full border-4 border-sky-500/20 border-t-sky-400 flex flex-col items-center justify-center bg-brand-darkest shadow-inner">
+              <span className="text-3xl font-black text-slate-100">{avgDays || '—'}</span>
+              <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">dias</span>
+            </div>
+            <div>
+              <p className="text-xs text-slate-300 font-medium">Média calculada para {completedCands.length} pilotos</p>
+              <p className="text-[10px] text-slate-500 mt-1">Desde a validação do Admin até o último envio de certificado</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Bottom Area: Rankings & Funnels */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        {/* School Ranking */}
+        {selectedSchoolId === 'all' ? (
+          <div className="bg-brand-dark border border-brand-medium/40 rounded-2xl p-5 md:col-span-2 flex flex-col gap-4">
+            <div>
+              <h3 className="font-bold text-slate-200 text-sm">Ranking de Escolas</h3>
+              <p className="text-xs text-slate-500 mt-1">Quantidade de pilotos formados (treinamento concluído)</p>
+            </div>
+            <div className="flex flex-col gap-3 max-h-60 overflow-y-auto mt-2 pr-1">
+              {schoolRanking.map((sr, idx) => (
+                <div key={sr.name} className="flex items-center gap-3 bg-brand-darkest/40 border border-brand-medium/20 rounded-xl p-3 hover:border-brand-medium transition">
+                  <div className={`w-6 h-6 rounded-full flex items-center justify-center font-bold text-xs shrink-0 ${
+                    idx === 0 ? 'bg-brand-gold/15 text-brand-gold' : idx === 1 ? 'bg-slate-300/15 text-slate-300' : 'bg-brand-medium text-slate-400'
+                  }`}>
+                    {idx + 1}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-semibold text-slate-300 truncate">{sr.name}</p>
+                    <p className="text-[10px] text-slate-500 mt-0.5">{sr.total} candidatos registrados</p>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <span className="text-sm font-extrabold text-sky-400">{sr.completedCount}</span>
+                    <span className="text-[10px] text-slate-600 font-medium ml-1">concluídos</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <div className="bg-brand-dark border border-brand-medium/40 rounded-2xl p-5 md:col-span-2 flex flex-col gap-4">
+            <div>
+              <h3 className="font-bold text-slate-200 text-sm">Distribuição Gupy</h3>
+              <p className="text-xs text-slate-500 mt-1">Status da triagem para a escola selecionada</p>
+            </div>
+            <div className="grid grid-cols-2 gap-4 mt-2">
+              <div className="bg-brand-darkest/40 border border-brand-medium/20 rounded-xl p-4 text-center">
+                <p className="text-2xl font-black text-emerald-400">{filteredCandidates.filter(c => c.gupyStatus === 'gupy_min').length}</p>
+                <p className="text-[10px] text-slate-400 font-bold uppercase mt-1">Com Mínimos</p>
+              </div>
+              <div className="bg-brand-darkest/40 border border-brand-medium/20 rounded-xl p-4 text-center">
+                <p className="text-2xl font-black text-rose-400">{filteredCandidates.filter(c => c.gupyStatus === 'gupy_no_min').length}</p>
+                <p className="text-[10px] text-slate-400 font-bold uppercase mt-1">Sem Mínimos</p>
+              </div>
+              <div className="bg-brand-darkest/40 border border-brand-medium/20 rounded-xl p-4 text-center">
+                <p className="text-2xl font-black text-slate-400">{filteredCandidates.filter(c => c.gupyStatus === 'not_gupy' || !c.gupyStatus).length}</p>
+                <p className="text-[10px] text-slate-400 font-bold uppercase mt-1">Fora da Gupy</p>
+              </div>
+              <div className="bg-brand-darkest/40 border border-brand-medium/20 rounded-xl p-4 text-center">
+                <p className="text-2xl font-black text-amber-400">{filteredCandidates.filter(c => c.gupyStatus === 'gupy_pending').length}</p>
+                <p className="text-[10px] text-slate-400 font-bold uppercase mt-1">Triagem Pendente</p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Funnel */}
+        <div className="bg-brand-dark border border-brand-medium/40 rounded-2xl p-5 flex flex-col gap-4">
+          <div>
+            <h3 className="font-bold text-slate-200 text-sm">Processo Seletivo (Funil)</h3>
+            <p className="text-xs text-slate-500 mt-1">Distribuição dos pilotos qualificados</p>
+          </div>
+          <div className="flex flex-col gap-4 justify-center mt-2">
+            {/* Qualified */}
+            <div className="flex items-center justify-between text-xs bg-slate-900/30 p-2.5 rounded-xl border border-brand-medium/20">
+              <span className="font-medium text-slate-400 flex items-center gap-2">
+                <div className="w-2.5 h-2.5 rounded-full bg-sky-400" /> Qualificados
+              </span>
+              <span className="font-bold text-slate-200 font-mono text-sm">{completed}</span>
+            </div>
+            {/* In Selection */}
+            <div className="flex items-center justify-between text-xs bg-slate-900/30 p-2.5 rounded-xl border border-brand-medium/20">
+              <span className="font-medium text-slate-400 flex items-center gap-2">
+                <div className="w-2.5 h-2.5 rounded-full bg-amber-400 animate-pulse" /> Em Seleção
+              </span>
+              <span className="font-bold text-slate-200 font-mono text-sm">{inSelection}</span>
+            </div>
+            {/* Hired */}
+            <div className="flex items-center justify-between text-xs bg-slate-900/30 p-2.5 rounded-xl border border-brand-medium/20">
+              <span className="font-medium text-slate-400 flex items-center gap-2">
+                <div className="w-2.5 h-2.5 rounded-full bg-emerald-400" /> Contratados
+              </span>
+              <span className="font-bold text-slate-200 font-mono text-sm">{hired}</span>
+            </div>
+            {/* Reprovados */}
+            <div className="flex items-center justify-between text-xs bg-slate-900/30 p-2.5 rounded-xl border border-brand-medium/20">
+              <span className="font-medium text-slate-400 flex items-center gap-2">
+                <div className="w-2.5 h-2.5 rounded-full bg-red-400" /> Reprovados
+              </span>
+              <span className="font-bold text-slate-200 font-mono text-sm">{selectionRejected}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // APP ROOT
 // ─────────────────────────────────────────────────────────────────────────────
 export default function App() {
@@ -2230,6 +2668,12 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    if (currentUser && currentUser.role === 'school_admin' && (activeWorkspace === 'selection' || activeWorkspace === 'dashboard')) {
+      setActiveWorkspace('validation');
+    }
+  }, [currentUser, activeWorkspace]);
+
+  useEffect(() => {
     if (!currentUser) return;
     const handler = (e: Event) => {
       const notif = (e as CustomEvent).detail as Notification;
@@ -2318,12 +2762,20 @@ export default function App() {
     if (!currentUser) return;
     if (status === 'in_selection') {
       const cand = candidates.find(c => c.id === id);
-      if (!cand || cand.gupyStatus !== 'gupy_min') {
-        alert("Apenas candidatos marcados como 'Na Gupy e tem os mínimos' podem avançar para a etapa de Processo Seletivo.");
+      if (!cand || (cand.gupyStatus !== 'gupy_min' && cand.gupyStatus !== 'gupy_pending')) {
+        alert("Apenas candidatos marcados como 'Na Gupy e tem os mínimos' ou 'Pendente' podem avançar para a etapa de Processo Seletivo.");
         return;
       }
     }
     const res = await stateMachine.updateSelectionStatus(id, status, currentUser);
+    if (!res.success) alert(res.message);
+    else await refresh();
+  };
+
+  const handleResetCandidate = async (id: string) => {
+    if (!currentUser) return;
+    if (!confirm('Deseja realmente reiniciar o fluxo de treinamento deste candidato? Isso limpará todos os certificados atuais.')) return;
+    const res = await stateMachine.resetCandidateWorkflow(id, currentUser);
     if (!res.success) alert(res.message);
     else await refresh();
   };
@@ -2557,7 +3009,7 @@ export default function App() {
             <span className="text-slate-600">Escola Recomendada</span>
             <ChevronRight className="w-3.5 h-3.5" />
             <span className="text-slate-300 font-medium">
-              {activeWorkspace === 'validation' ? 'Validação' : activeWorkspace === 'training' ? 'Treinamento' : activeWorkspace === 'selection' ? 'Processo Seletivo' : 'Configurações'}
+              {activeWorkspace === 'dashboard' ? 'Dashboard' : activeWorkspace === 'validation' ? 'Validação' : activeWorkspace === 'training' ? 'Treinamento' : activeWorkspace === 'selection' ? 'Processo Seletivo' : 'Configurações'}
             </span>
           </div>
           <div className="flex items-center gap-3">
@@ -2580,6 +3032,13 @@ export default function App() {
         </header>
 
         <main className="flex-1 p-8">
+          {activeWorkspace === 'dashboard' && currentUser.role === 'admin' && (
+            <DashboardWorkspace
+              candidates={candidates}
+              modules={modules}
+              schools={schools}
+            />
+          )}
           {activeWorkspace === 'validation' && (
             <ValidationWorkspace
               candidates={candidates}
@@ -2607,6 +3066,7 @@ export default function App() {
               onMove={handleMoveKanban}
               onUpdateGupy={handleUpdateGupy}
               schools={schools}
+              onResetCandidate={handleResetCandidate}
             />
           )}
           {activeWorkspace === 'config' && (

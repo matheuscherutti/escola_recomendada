@@ -2,8 +2,8 @@ import { supabase } from './supabaseClient';
 
 export type UserRole = 'admin' | 'school_admin';
 export type CandidateStatus = 'pending_validation' | 'rejected' | 'in_progress' | 'completed';
-export type SelectionStatus = 'finalized' | 'in_selection' | 'hired';
-export type GupyStatus = 'gupy_min' | 'gupy_no_min' | 'not_gupy';
+export type SelectionStatus = 'finalized' | 'in_selection' | 'hired' | 'rejected';
+export type GupyStatus = 'gupy_min' | 'gupy_no_min' | 'not_gupy' | 'gupy_pending';
 export type ModuleCode = 'TEORICO' | 'SIMULADOR' | 'VOO';
 export type ModuleStatus = 'pending' | 'waiting_admin' | 'completed';
 
@@ -37,6 +37,7 @@ export interface Candidate {
   gupyStatus?: GupyStatus;
   validatedBy?: string;
   validatedAt?: string;
+  rejectedAt?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -354,6 +355,7 @@ const mapCandidateToTS = (row: any): Candidate => ({
   gupyStatus: row.gupy_status as GupyStatus || undefined,
   validatedBy: row.validated_by || undefined,
   validatedAt: row.validated_at || undefined,
+  rejectedAt: row.rejected_at || undefined,
   createdAt: row.created_at,
   updatedAt: row.updated_at
 });
@@ -369,6 +371,7 @@ const mapCandidateToDb = (c: Candidate) => ({
   gupy_status: c.gupyStatus || null,
   validated_by: c.validatedBy || null,
   validated_at: c.validatedAt || null,
+  rejected_at: c.rejectedAt || null,
   created_at: c.createdAt,
   updated_at: c.updatedAt
 });

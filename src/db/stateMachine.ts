@@ -10,6 +10,7 @@ export const getSelectionStatusLabel = (status: SelectionStatus): string => {
     case 'finalized': return 'Finalizou';
     case 'in_selection': return 'Processo Seletivo';
     case 'hired': return 'Contratado';
+    case 'rejected': return 'Reprovado';
     default: return status;
   }
 };
@@ -60,6 +61,7 @@ export const stateMachine = {
         school_id: schoolId,
         status: 'pending_validation',
         selection_status: 'finalized',
+        gupy_status: 'gupy_pending',
         created_at: timestamp,
         updated_at: timestamp
       });
@@ -393,12 +395,19 @@ export const stateMachine = {
       const timestamp = new Date().toISOString();
 
       // Atualiza Status do Processo Seletivo
+      const updateData: any = {
+        selection_status: newStatus,
+        updated_at: timestamp
+      };
+      if (newStatus === 'rejected') {
+        updateData.rejected_at = timestamp;
+      } else {
+        updateData.rejected_at = null;
+      }
+
       const { error: updateErr } = await supabase
         .from('candidates')
-        .update({
-          selection_status: newStatus,
-          updated_at: timestamp
-        })
+        .update(updateData)
         .eq('id', candidateId);
 
       if (updateErr) throw updateErr;
@@ -730,6 +739,79 @@ export const stateMachine = {
     } catch (err: any) {
       console.error('Erro no resetPassword:', err);
       return { success: false, message: `Erro ao solicitar redefinição de senha: ${err.message}` };
+    }
+  },
+
+  resetCandidateWorkflow: async (
+    candidateId: string,
+    currentUser: User
+  ): Promise<{ success: boolean; message: string }> => {
+    if (currentUser.role !== 'admin') {
+      return { success: false, message: 'Apenas administradores podem reiniciar o processo.' };
+    }
+
+    try {
+      const timestamp = new Date().toISOString();
+
+      // Buscar dados do candidato
+      const { data: candidate, error: candErr } = await supabase
+        .from('candidates')
+        .select('*')
+        .eq('id', candidateId)
+        .single();
+
+      if (candErr || !candidate) {
+        return { success: false, message: 'Candidato não encontrado.' };
+      }
+
+      // Reiniciar status do candidato no banco de dados
+      const { error: updateErr } = await supabase
+        .from('candidates')
+        .update({
+          status: 'in_progress',
+          selection_status: 'finalized',
+          rejected_at: null,
+          updated_at: timestamp
+        })
+        .eq('id', candidateId);
+
+      if (updateErr) throw updateErr;
+
+      // Limpar todos os registros de progresso de módulo
+      const { error: resetModsErr } = await supabase
+        .from('candidate_module_progress')
+        .update({
+          status: 'pending',
+          completion_date: null,
+          school_id: null,
+          certificate_url: null,
+          class_sheets: null,
+          uploaded_at: null,
+          updated_by: null,
+          updated_at: timestamp
+        })
+        .eq('candidate_id', candidateId);
+
+      if (resetModsErr) throw resetModsErr;
+
+      // Registrar Log de Auditoria
+      const { error: logErr } = await supabase.from('audit_logs').insert({
+        id: `log-${generateId()}`,
+        created_at: timestamp,
+        user_id: currentUser.id,
+        user_name: currentUser.name,
+        candidate_id: candidate.id,
+        candidate_name: candidate.name,
+        changed_field: 'Fluxo Geral',
+        old_value: 'Reprovado (Quarentena Finalizada)',
+        new_value: 'Treinamento Reiniciado'
+      });
+      if (logErr) throw logErr;
+
+      return { success: true, message: 'Processo do candidato reiniciado com sucesso!' };
+    } catch (err: any) {
+      console.error('Erro no resetCandidateWorkflow:', err);
+      return { success: false, message: `Erro ao reiniciar processo: ${err.message}` };
     }
   }
 };
