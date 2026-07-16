@@ -718,27 +718,57 @@ function CertificateDrawer({ prog, candidateName, onValidate, onReject, onClose,
           {/* PDF Viewer Simulation */}
           <div>
             <p className="text-xs text-slate-500 uppercase font-semibold tracking-wide mb-2">Visualização do Certificado</p>
-            <div className="bg-brand-medium/20 rounded-xl border border-brand-medium/30 h-64 flex flex-col items-center justify-center gap-3 text-slate-600">
-              <FileText className="w-12 h-12 opacity-30 text-sky-400" />
-              <div className="text-center">
-                <p className="text-sm font-semibold text-slate-300">{prog.certificateUrl}</p>
-                <p className="text-xs text-slate-500 mt-1">Visualizador PDF (simulado)</p>
+            {prog.certificateUrl && (prog.certificateUrl.startsWith('http') || prog.certificateUrl.startsWith('blob:')) ? (
+              <div className="rounded-xl border border-brand-medium/30 h-64 overflow-hidden bg-slate-950 relative group flex items-center justify-center">
+                {prog.certificateUrl.toLowerCase().includes('.pdf') ? (
+                  <iframe 
+                    src={prog.certificateUrl} 
+                    className="w-full h-full bg-white" 
+                    title="Visualização do Certificado"
+                  />
+                ) : (
+                  <img 
+                    src={prog.certificateUrl} 
+                    alt="Certificado" 
+                    className="w-full h-full object-contain"
+                  />
+                )}
+                {/* Overlay link for hover convenience */}
+                <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-all duration-200 pointer-events-none">
+                  <a
+                    href={prog.certificateUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="pointer-events-auto px-4 py-2 bg-sky-500 hover:bg-sky-600 text-slate-950 rounded-xl text-xs font-bold transition flex items-center gap-2 shadow-lg"
+                  >
+                    <FileText className="w-3.5 h-3.5" />
+                    Abrir em Tela Cheia
+                  </a>
+                </div>
               </div>
-              <a
-                href={prog.certificateUrl ? (prog.certificateUrl.startsWith('http') ? prog.certificateUrl : `/${prog.certificateUrl}`) : '#'}
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={(e) => {
-                  if (!prog.certificateUrl) {
-                    e.preventDefault();
-                  }
-                }}
-                className="mt-3 px-4 py-2 bg-sky-500 hover:bg-sky-600 text-slate-950 rounded-xl text-xs font-bold transition-all duration-150 flex items-center gap-2 shadow-lg shadow-sky-500/10 cursor-pointer"
-              >
-                <FileText className="w-3.5 h-3.5" />
-                Visualizar Certificado
-              </a>
-            </div>
+            ) : (
+              <div className="bg-brand-medium/20 rounded-xl border border-brand-medium/30 h-64 flex flex-col items-center justify-center gap-3 text-slate-600">
+                <FileText className="w-12 h-12 opacity-30 text-sky-400" />
+                <div className="text-center">
+                  <p className="text-sm font-semibold text-slate-300">{prog.certificateUrl || 'Sem arquivo anexado'}</p>
+                  <p className="text-xs text-slate-500 mt-1">Visualizador PDF (simulado)</p>
+                </div>
+                <a
+                  href={prog.certificateUrl ? `/${prog.certificateUrl}` : '#'}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={(e) => {
+                    if (!prog.certificateUrl) {
+                      e.preventDefault();
+                    }
+                  }}
+                  className="mt-3 px-4 py-2 bg-sky-500 hover:bg-sky-600 text-slate-950 rounded-xl text-xs font-bold transition flex items-center gap-2 cursor-pointer"
+                >
+                  <FileText className="w-3.5 h-3.5" />
+                  Visualizar Certificado
+                </a>
+              </div>
+            )}
           </div>
         </div>
 
