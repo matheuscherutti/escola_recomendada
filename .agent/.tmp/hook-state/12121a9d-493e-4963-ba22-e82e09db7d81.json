@@ -1,0 +1,1 @@
+{"calls": [{"tool": "Read", "sig": "0cf96e741514ea1f", "error": true}, {"tool": "Write", "sig": "a2cd74fc4a1e7db4", "error": false}, {"tool": "Edit", "sig": "87fb47140444946a", "error": true}, {"tool": "Write", "sig": "177049ff1dbdc0d7", "error": false}, {"tool": "Read", "sig": "55385249b5c9f172", "error": false}, {"tool": "Edit", "sig": "4fe0a4100a6d37a4", "error": false}]}

@@ -1,0 +1,57 @@
+{
+  "skill": "example-skill",
+  "description": "Example test cases for benchmarking a skill",
+  "test_cases": [
+    {
+      "id": 1,
+      "name": "basic-functionality",
+      "description": "Tests basic functionality with simple input",
+      "input": "Sample input text for the skill to process",
+      "expected_output": "Expected result after processing",
+      "assertions": [
+        {
+          "name": "output-not-empty",
+          "description": "Output should not be empty string"
+        },
+        {
+          "name": "output-type-correct",
+          "description": "Output should be string or JSON object"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "name": "edge-case-handling",
+      "description": "Tests how skill handles edge cases",
+      "input": "Edge case: empty input, special characters, very long text",
+      "expected_output": "Skill should handle gracefully without crashing",
+      "assertions": [
+        {
+          "name": "handles-edge-cases",
+          "description": "Should handle edge cases without error"
+        },
+        {
+          "name": "graceful-degradation",
+          "description": "Should provide meaningful output or error message"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "name": "performance-benchmark",
+      "description": "Tests skill performance under load",
+      "input": "Larger dataset or complex scenario",
+      "expected_output": "Processed result within acceptable time",
+      "assertions": [
+        {
+          "name": "completes-in-time",
+          "description": "Should complete in under 5 seconds"
+        },
+        {
+          "name": "produces-correct-result",
+          "description": "Result should match expected output"
+        }
+      ]
+    }
+  ]
+}
