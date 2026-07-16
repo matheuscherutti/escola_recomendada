@@ -1490,28 +1490,30 @@ function AddCandidateModal({
 // ADD ADMINISTRATOR MODAL
 // ─────────────────────────────────────────────────────────────────────────────
 interface AddAdminModalProps {
-  onSubmit: (name: string, email: string) => void;
+  onSubmit: (userId: string) => void;
   onClose: () => void;
+  users: User[];
 }
 
-function AddAdminModal({ onSubmit, onClose }: AddAdminModalProps) {
-  const [name, setName] = useState('');
-  const [email, setEmail] = useState('');
+function AddAdminModal({ onSubmit, onClose, users }: AddAdminModalProps) {
+  const [selectedUserId, setSelectedUserId] = useState('');
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name || !email) return;
-    onSubmit(name, email);
+    if (!selectedUserId) return;
+    onSubmit(selectedUserId);
     onClose();
   };
+
+  const candidateUsers = users.filter(u => u.role !== 'admin');
 
   return (
     <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
       <div className="bg-brand-dark border border-brand-medium/40 rounded-2xl w-full max-w-md shadow-2xl">
         <div className="px-6 py-5 border-b border-brand-medium/30 flex items-center justify-between">
           <div>
-            <h3 className="font-bold text-slate-100">Cadastrar Administrador</h3>
-            <p className="text-xs text-slate-500 mt-0.5">Criar um novo usuário administrador geral</p>
+            <h3 className="font-bold text-slate-100">Adicionar Administrador</h3>
+            <p className="text-xs text-slate-500 mt-0.5">Promover um usuário cadastrado a Administrador Geral</p>
           </div>
           <button onClick={onClose} className="p-2 rounded-xl bg-brand-medium hover:bg-brand-medium/80 text-slate-400 transition">
             <X className="w-4 h-4" />
@@ -1519,33 +1521,35 @@ function AddAdminModal({ onSubmit, onClose }: AddAdminModalProps) {
         </div>
         <form onSubmit={handleSubmit} className="px-6 py-5 flex flex-col gap-4">
           <div>
-            <label className="text-[11px] text-slate-400 uppercase font-semibold tracking-wide block mb-1.5">Nome Completo</label>
-            <input
-              required
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Ex: Matheus Oliveira"
-              className="w-full bg-brand-medium border border-brand-medium/40 text-slate-200 text-sm rounded-xl px-3 py-2.5 outline-none focus:border-brand-accent transition placeholder-slate-600"
-            />
-          </div>
-          <div>
-            <label className="text-[11px] text-slate-400 uppercase font-semibold tracking-wide block mb-1.5">E-mail Corporativo</label>
-            <input
-              required
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="Ex: matheus@empresa.com"
-              className="w-full bg-brand-medium border border-brand-medium/40 text-slate-200 text-sm rounded-xl px-3 py-2.5 outline-none focus:border-brand-accent transition placeholder-slate-600"
-            />
+            <label className="text-[11px] text-slate-400 uppercase font-semibold tracking-wide block mb-1.5">Selecione o Usuário</label>
+            {candidateUsers.length > 0 ? (
+              <select
+                required
+                value={selectedUserId}
+                onChange={(e) => setSelectedUserId(e.target.value)}
+                className="w-full bg-brand-medium border border-brand-medium/40 text-slate-200 text-sm rounded-xl px-3 py-2.5 outline-none focus:border-brand-accent transition cursor-pointer"
+              >
+                <option value="" disabled>Escolha um usuário registrado...</option>
+                {candidateUsers.map(u => (
+                  <option key={u.id} value={u.id}>{u.name} ({u.email})</option>
+                ))}
+              </select>
+            ) : (
+              <p className="text-xs text-slate-500 italic py-2">
+                Nenhum usuário escolar cadastrado disponível para promoção. Peça para o novo admin se cadastrar na tela inicial primeiro.
+              </p>
+            )}
           </div>
           <div className="flex gap-3 pt-2">
             <button type="button" onClick={onClose} className="flex-1 py-2.5 rounded-xl bg-brand-medium hover:bg-brand-medium/80 text-slate-300 text-sm font-semibold transition">
               Cancelar
             </button>
-            <button type="submit" className="flex-1 py-2.5 rounded-xl bg-sky-500 hover:bg-sky-600 text-slate-950 text-sm font-bold transition shadow-lg shadow-sky-500/20">
-              Cadastrar Adm
+            <button
+              type="submit"
+              disabled={!selectedUserId}
+              className="flex-1 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 disabled:bg-brand-medium disabled:text-slate-500 text-slate-950 text-sm font-bold transition shadow-lg disabled:shadow-none"
+            >
+              Promover a Adm
             </button>
           </div>
         </form>
@@ -1562,7 +1566,7 @@ interface ConfigurationWorkspaceProps {
   onAddSchool: (name: string, contactName: string, email: string, phone: string) => void;
   users: User[];
   onResetPassword: (userId: string) => void;
-  onAddAdmin: (name: string, email: string) => void;
+  onAddAdmin: (userId: string) => void;
   onAssignSchoolUser: (userId: string, schoolId: string) => void;
 }
 
@@ -1776,7 +1780,7 @@ function ConfigurationWorkspace({ schools, onAddSchool, users, onResetPassword, 
       )}
 
       {showAddAdminModal && (
-        <AddAdminModal onSubmit={onAddAdmin} onClose={() => setShowAddAdminModal(false)} />
+        <AddAdminModal users={users} onSubmit={onAddAdmin} onClose={() => setShowAddAdminModal(false)} />
       )}
     </div>
   );
@@ -2256,44 +2260,25 @@ export default function App() {
       const newSchoolId = `sch-${Math.random().toString(36).substring(2, 9)}`;
       const newSchool: School = { id: newSchoolId, name, active: true, contactName, email, phone };
       await mockDb.setSchools([...currentSchools, newSchool]);
-
-      const currentUsers = await mockDb.getUsers();
-      const newUser: User = {
-        id: `usr-${Math.random().toString(36).substring(2, 9)}`,
-        email,
-        name: `${contactName} (${name.split(' ').slice(-1)[0] || name})`,
-        role: 'school_admin',
-        password: 'crpazul1234*',
-        schoolId: newSchoolId
-      };
-      await mockDb.setUsers([...currentUsers, newUser]);
-
       await refresh();
     } catch (err) {
       console.error(err);
     }
   };
 
-  const handleCreateAdmin = async (name: string, email: string) => {
+  const handleCreateAdmin = async (userId: string) => {
     try {
-      const currentUsers = await mockDb.getUsers();
-      const exists = currentUsers.some(u => u.email.toLowerCase() === email.toLowerCase());
-      if (exists) {
-        alert('Já existe um usuário cadastrado com este e-mail.');
-        return;
-      }
-      const newAdmin: User = {
-        id: `usr-${Math.random().toString(36).substring(2, 9)}`,
-        email,
-        name,
-        role: 'admin',
-        password: 'crpazul1234*'
-      };
-      await mockDb.setUsers([...currentUsers, newAdmin]);
+      const { error } = await supabase
+        .from('users')
+        .update({ role: 'admin', school_id: null })
+        .eq('id', userId);
+
+      if (error) throw error;
       await refresh();
-      alert('Administrador cadastrado com sucesso! Senha padrão: crpazul1234*');
-    } catch (err) {
+      alert('Usuário promovido a Administrador Geral com sucesso!');
+    } catch (err: any) {
       console.error(err);
+      alert(`Erro ao promover usuário: ${err.message}`);
     }
   };
 
