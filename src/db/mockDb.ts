@@ -312,7 +312,6 @@ const mapUserToTS = (row: any): User => ({
   email: row.email,
   name: row.name,
   role: row.role as UserRole,
-  password: row.password,
   schoolId: row.school_id || undefined
 });
 
@@ -321,7 +320,6 @@ const mapUserToDb = (u: User) => ({
   email: u.email,
   name: u.name,
   role: u.role,
-  password: u.password || null,
   school_id: u.schoolId || null
 });
 
@@ -469,13 +467,6 @@ export const mockDb = {
     const { error } = await supabase.from('users').upsert(data.map(mapUserToDb));
     if (error) {
       console.error('Erro ao salvar usuários:', error);
-      throw error;
-    }
-  },
-  updateUserPassword: async (userId: string, newPass: string): Promise<void> => {
-    const { error } = await supabase.from('users').update({ password: newPass }).eq('id', userId);
-    if (error) {
-      console.error('Erro ao atualizar senha:', error);
       throw error;
     }
   },

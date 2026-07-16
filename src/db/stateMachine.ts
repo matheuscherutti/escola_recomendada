@@ -645,42 +645,26 @@ export const stateMachine = {
 
   // 10. Alterar senha
   changePassword: async (
-    oldPass: string,
+    _oldPass: string,
     newPass: string,
     currentUser: User
   ): Promise<{ success: boolean; message: string }> => {
     try {
-      const { data: user, error: userErr } = await supabase
-        .from('users')
-        .select('*')
-        .eq('id', currentUser.id)
-        .single();
-
-      if (userErr || !user) {
-        return { success: false, message: 'Usuário não encontrado.' };
-      }
-      if (user.password !== oldPass) {
-        return { success: false, message: 'Senha atual incorreta.' };
-      }
       if (newPass === 'crpazul1234*') {
         return { success: false, message: 'Você não pode usar a senha padrão como sua nova senha.' };
       }
 
-      // Atualiza Senha no Supabase
-      const { error: updateErr } = await supabase
-        .from('users')
-        .update({ password: newPass })
-        .eq('id', user.id);
-
-      if (updateErr) throw updateErr;
+      // Atualiza Senha no Supabase Auth
+      const { error: authErr } = await supabase.auth.updateUser({ password: newPass });
+      if (authErr) throw authErr;
 
       // Auditoria
       const timestamp = new Date().toISOString();
       const { error: logErr } = await supabase.from('audit_logs').insert({
         id: `log-${generateId()}`,
         created_at: timestamp,
-        user_name: user.name,
-        user_id: user.id,
+        user_name: currentUser.name,
+        user_id: currentUser.id,
         candidate_id: '-',
         candidate_name: 'Sistema (Segurança)',
         changed_field: 'Alteração de Senha',
@@ -716,13 +700,12 @@ export const stateMachine = {
         return { success: false, message: 'Usuário escolar não encontrado.' };
       }
 
-      // Atualiza Senha no Supabase
-      const { error: updateErr } = await supabase
-        .from('users')
-        .update({ password: 'crpazul1234*' })
-        .eq('id', targetUser.id);
+      // Disparar e-mail de redefinição de senha do Supabase
+      const { error: resetErr } = await supabase.auth.resetPasswordForEmail(targetUser.email, {
+        redirectTo: window.location.origin
+      });
 
-      if (updateErr) throw updateErr;
+      if (resetErr) throw resetErr;
 
       // Auditoria
       const timestamp = new Date().toISOString();
@@ -733,16 +716,16 @@ export const stateMachine = {
         user_id: currentUser.id,
         candidate_id: '-',
         candidate_name: targetUser.name,
-        changed_field: 'Redefinição de Senha',
+        changed_field: 'Solicitação de Redefinição de Senha',
         old_value: '********',
-        new_value: 'Senha redefinida para crpazul1234* pelo Admin'
+        new_value: 'E-mail de recuperação enviado pelo Admin'
       });
       if (logErr) throw logErr;
 
-      return { success: true, message: 'Senha redefinida para o padrão crpazul1234*!' };
+      return { success: true, message: 'E-mail de redefinição de senha enviado com sucesso!' };
     } catch (err: any) {
       console.error('Erro no resetPassword:', err);
-      return { success: false, message: `Erro ao redefinir senha: ${err.message}` };
+      return { success: false, message: `Erro ao solicitar redefinição de senha: ${err.message}` };
     }
   }
 };

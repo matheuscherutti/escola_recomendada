@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { mockDb } from './db/mockDb';
 import type {
   User,
+  UserRole,
   School,
   Candidate,
   CandidateModuleProgress,
@@ -14,6 +15,7 @@ import type {
 import {
   stateMachine,
 } from './db/stateMachine';
+import { supabase } from './db/supabaseClient';
 import {
   Bell,
   CheckCircle,
@@ -1563,9 +1565,10 @@ interface ConfigurationWorkspaceProps {
   users: User[];
   onResetPassword: (userId: string) => void;
   onAddAdmin: (name: string, email: string) => void;
+  onAssignSchoolUser: (userId: string, schoolId: string) => void;
 }
 
-function ConfigurationWorkspace({ schools, onAddSchool, users, onResetPassword, onAddAdmin }: ConfigurationWorkspaceProps) {
+function ConfigurationWorkspace({ schools, onAddSchool, users, onResetPassword, onAddAdmin, onAssignSchoolUser }: ConfigurationWorkspaceProps) {
   const [showAddModal, setShowAddModal] = useState(false);
   const [showAddAdminModal, setShowAddAdminModal] = useState(false);
   const [form, setForm] = useState({ name: '', contactName: '', email: '', phone: '' });
@@ -1616,6 +1619,7 @@ function ConfigurationWorkspace({ schools, onAddSchool, users, onResetPassword, 
               <tbody>
                 {schools.map((school) => {
                   const schoolUser = users.find((u) => u.schoolId === school.id);
+                  const unassigned = users.filter(u => !u.schoolId && u.role === 'school_admin');
                   return (
                     <tr key={school.id} className="border-b border-brand-medium/20 hover:bg-brand-medium/10 transition">
                       <td className="py-3.5 px-5 font-semibold text-slate-200">{school.name}</td>
@@ -1631,15 +1635,31 @@ function ConfigurationWorkspace({ schools, onAddSchool, users, onResetPassword, 
                       </td>
                       <td className="py-3.5 px-5 text-right">
                         {schoolUser ? (
-                          <button
-                            onClick={() => onResetPassword(schoolUser.id)}
-                            className="px-2.5 py-1 rounded bg-amber-500/10 hover:bg-amber-500 text-amber-400 hover:text-slate-950 border border-amber-500/25 text-[10px] font-bold transition cursor-pointer"
-                            title="Redefinir senha para crpazul1234*"
-                          >
-                            Resetar Senha
-                          </button>
+                          <div className="flex items-center justify-end gap-2">
+                            <span className="text-[11px] text-slate-400 font-medium">{schoolUser.name}</span>
+                            <button
+                              onClick={() => onResetPassword(schoolUser.id)}
+                              className="px-2.5 py-1 rounded bg-amber-500/10 hover:bg-amber-500 text-amber-400 hover:text-slate-950 border border-amber-500/25 text-[10px] font-bold transition cursor-pointer"
+                              title="Enviar e-mail de recuperação de senha"
+                            >
+                              Recuperar
+                            </button>
+                          </div>
                         ) : (
-                          <span className="text-slate-600">—</span>
+                          unassigned.length > 0 ? (
+                            <select
+                              onChange={(e) => { if (e.target.value) onAssignSchoolUser(e.target.value, school.id); }}
+                              className="bg-brand-medium border border-brand-medium/40 text-slate-300 text-[11px] rounded-lg px-2 py-1 outline-none cursor-pointer max-w-[180px]"
+                              defaultValue=""
+                            >
+                              <option value="" disabled>Vincular Usuário...</option>
+                              {unassigned.map(u => (
+                                <option key={u.id} value={u.id}>{u.name} ({u.email})</option>
+                              ))}
+                            </select>
+                          ) : (
+                            <span className="text-slate-600 text-[11px] italic">Aguardando cadastro</span>
+                          )
                         )}
                       </td>
                     </tr>
@@ -1692,19 +1712,15 @@ function ConfigurationWorkspace({ schools, onAddSchool, users, onResetPassword, 
                       </span>
                     </td>
                     <td className="py-3.5 px-5 text-slate-400">
-                      {admin.password === 'crpazul1234*' ? (
-                        <span className="text-amber-500/85 font-medium text-[10px]">Senha padrão (Inicial)</span>
-                      ) : (
-                        <span className="text-emerald-400 font-medium text-[10px]">Alterada pelo usuário</span>
-                      )}
+                      <span className="text-emerald-400 font-medium text-[10px]">Segura (Supabase)</span>
                     </td>
                     <td className="py-3.5 px-5 text-right">
                       <button
                         onClick={() => onResetPassword(admin.id)}
                         className="px-2.5 py-1 rounded bg-amber-500/10 hover:bg-amber-500 text-amber-400 hover:text-slate-950 border border-amber-500/25 text-[10px] font-bold transition cursor-pointer"
-                        title="Redefinir senha para crpazul1234*"
+                        title="Enviar e-mail de recuperação de senha"
                       >
-                        Resetar Senha
+                        Recuperar
                       </button>
                     </td>
                   </tr>
@@ -1771,37 +1787,55 @@ function ConfigurationWorkspace({ schools, onAddSchool, users, onResetPassword, 
 // ─────────────────────────────────────────────────────────────────────────────
 // LOGIN SCREEN COMPONENT
 // ─────────────────────────────────────────────────────────────────────────────
-interface LoginScreenProps {
-  onLogin: (user: User) => void;
-  users: User[];
-}
-
-function LoginScreen({ onLogin, users }: LoginScreenProps) {
+function LoginScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [name, setName] = useState('');
+  const [mode, setMode] = useState<'login' | 'signup'>('login');
   const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    setLoading(true);
 
-    const user = users.find(
-      (u) => u.email.toLowerCase() === email.toLowerCase()
-    );
+    if (mode === 'login') {
+      const { error: authErr } = await supabase.auth.signInWithPassword({
+        email,
+        password
+      });
 
-    if (!user || user.password !== password) {
-      setError('Credenciais incorretas. Por favor, verifique seu e-mail e senha.');
-      return;
-    }
+      if (authErr) {
+        setError('Credenciais incorretas ou erro de login. Por favor, verifique seu e-mail e senha.');
+        setLoading(false);
+      }
+    } else {
+      if (!name.trim()) {
+        setError('Por favor, digite seu nome.');
+        setLoading(false);
+        return;
+      }
 
-    onLogin(user);
-  };
+      const { error: authErr } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          data: {
+            name: name.trim()
+          }
+        }
+      });
 
-  const handleQuickLogin = (role: 'admin' | 'school') => {
-    const targetEmail = role === 'admin' ? 'admin@empresa.com' : 'contato@escolaalfa.com.br';
-    const user = users.find((u) => u.email === targetEmail);
-    if (user) {
-      onLogin(user);
+      if (authErr) {
+        setError(`Erro ao cadastrar: ${authErr.message}`);
+        setLoading(false);
+        return;
+      }
+
+      alert('Cadastro realizado com sucesso! Aguarde a aprovação do Administrador.');
+      setMode('login');
+      setLoading(false);
     }
   };
 
@@ -1834,6 +1868,20 @@ function LoginScreen({ onLogin, users }: LoginScreenProps) {
             </div>
           )}
 
+          {mode === 'signup' && (
+            <div>
+              <label className="text-[10px] text-slate-400 uppercase font-bold tracking-wider block mb-1.5 pl-1">Nome Completo</label>
+              <input
+                type="text"
+                required
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="Seu nome"
+                className="w-full bg-brand-medium/55 border border-brand-medium/40 text-slate-200 text-sm rounded-xl px-3.5 py-3 outline-none focus:border-brand-accent transition placeholder-slate-600 font-medium"
+              />
+            </div>
+          )}
+
           <div>
             <label className="text-[10px] text-slate-400 uppercase font-bold tracking-wider block mb-1.5 pl-1">E-mail corporativo</label>
             <input
@@ -1860,134 +1908,28 @@ function LoginScreen({ onLogin, users }: LoginScreenProps) {
 
           <button
             type="submit"
-            className="w-full py-3.5 rounded-xl bg-sky-500 hover:bg-sky-600 text-slate-950 text-sm font-black transition duration-200 shadow-lg shadow-sky-500/10 mt-2 cursor-pointer active:scale-[0.99]"
+            disabled={loading}
+            className="w-full py-3.5 rounded-xl bg-sky-500 hover:bg-sky-600 text-slate-950 text-sm font-black transition duration-200 shadow-lg shadow-sky-500/10 mt-2 cursor-pointer active:scale-[0.99] disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            Acessar Plataforma
+            {loading ? 'Processando...' : mode === 'login' ? 'Acessar Plataforma' : 'Criar Conta'}
           </button>
         </form>
 
-        <div className="border-t border-brand-medium/30 pt-5 flex flex-col gap-3">
-          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest text-center">Acesso Rápido (Dev)</p>
-          <div className="flex gap-3">
-            <button
-              onClick={() => handleQuickLogin('admin')}
-              className="flex-1 py-2 rounded-xl bg-brand-medium/40 hover:bg-brand-medium/70 border border-brand-medium/40 text-[10px] font-bold text-amber-400 transition cursor-pointer"
-            >
-              🏢 Perfil Admin
-            </button>
-            <button
-              onClick={() => handleQuickLogin('school')}
-              className="flex-1 py-2 rounded-xl bg-brand-medium/40 hover:bg-brand-medium/70 border border-brand-medium/40 text-[10px] font-bold text-sky-400 transition cursor-pointer"
-            >
-              🏫 Perfil Escola
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// MANDATORY PASSWORD CHANGE OVERLAY
-// ─────────────────────────────────────────────────────────────────────────────
-interface MandatoryPasswordChangeProps {
-  currentUser: User;
-  onSubmit: (newPass: string) => void;
-  onLogout: () => void;
-}
-
-function MandatoryPasswordChange({ currentUser, onSubmit, onLogout }: MandatoryPasswordChangeProps) {
-  const [newPass, setNewPass] = useState('');
-  const [confirmPass, setConfirmPass] = useState('');
-  const [error, setError] = useState('');
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    setError('');
-
-    if (newPass === 'crpazul1234*') {
-      setError('A nova senha não pode ser a senha padrão.');
-      return;
-    }
-    if (newPass.length < 6) {
-      setError('A senha deve ter no mínimo 6 caracteres.');
-      return;
-    }
-    if (newPass !== confirmPass) {
-      setError('As senhas não coincidem.');
-      return;
-    }
-
-    onSubmit(newPass);
-  };
-
-  return (
-    <div className="fixed inset-0 bg-brand-darkest/95 backdrop-blur-md flex items-center justify-center p-4 z-[999]">
-      <div className="w-full max-w-md bg-brand-dark border border-brand-medium/40 rounded-3xl shadow-2xl p-8 flex flex-col gap-6">
-        <div className="flex flex-col items-center text-center gap-3">
-          <div className="p-3 bg-amber-500/10 rounded-2xl border border-amber-500/25">
-            <ShieldCheck className="w-8 h-8 text-amber-400" />
-          </div>
-          <div>
-            <h2 className="text-lg font-bold text-slate-100">Alteração de Senha Obrigatória</h2>
-            <p className="text-xs text-slate-500 mt-1 leading-relaxed">
-              Olá, <strong className="text-slate-300">{currentUser.name}</strong>. Para garantir a segurança dos dados dos alunos, você precisa alterar a sua senha padrão no primeiro acesso.
-            </p>
-          </div>
-        </div>
-
-        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-          {error && (
-            <div className="bg-red-500/10 border border-red-500/25 rounded-xl p-3 text-xs text-red-400 flex items-start gap-2">
-              <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
-              <span>{error}</span>
-            </div>
-          )}
-
-          <div>
-            <label className="text-[10px] text-slate-400 uppercase font-bold block mb-1.5 pl-1">Nova Senha</label>
-            <input
-              type="password"
-              required
-              value={newPass}
-              onChange={(e) => setNewPass(e.target.value)}
-              placeholder="Digite a nova senha"
-              className="w-full bg-brand-medium border border-brand-medium/40 text-slate-200 text-sm rounded-xl px-3.5 py-2.5 outline-none focus:border-brand-accent transition"
-            />
-          </div>
-
-          <div>
-            <label className="text-[10px] text-slate-400 uppercase font-bold block mb-1.5 pl-1">Confirmar Nova Senha</label>
-            <input
-              type="password"
-              required
-              value={confirmPass}
-              onChange={(e) => setConfirmPass(e.target.value)}
-              placeholder="Confirme a nova senha"
-              className="w-full bg-brand-medium border border-brand-medium/40 text-slate-200 text-sm rounded-xl px-3.5 py-2.5 outline-none focus:border-brand-accent transition"
-            />
-          </div>
-
-          <button
-            type="submit"
-            className="w-full py-3.5 rounded-xl bg-sky-500 hover:bg-sky-600 text-slate-950 text-sm font-black transition shadow-lg shadow-sky-500/10 mt-2 cursor-pointer"
-          >
-            Definir Senha e Continuar
-          </button>
-          
+        <div className="text-center mt-2">
           <button
             type="button"
-            onClick={onLogout}
-            className="w-full py-2.5 rounded-xl bg-transparent hover:bg-brand-medium/30 text-slate-500 hover:text-slate-300 text-xs font-semibold transition cursor-pointer"
+            onClick={() => { setMode(mode === 'login' ? 'signup' : 'login'); setError(''); }}
+            className="text-xs text-sky-400 hover:text-sky-300 font-semibold transition"
           >
-            Voltar para o Login
+            {mode === 'login' ? 'Não tem uma conta? Cadastre-se' : 'Já tem uma conta? Faça login'}
           </button>
-        </form>
+        </div>
       </div>
     </div>
   );
 }
+
+
 
 // ─────────────────────────────────────────────────────────────────────────────
 // SCHOOL SETTINGS WORKSPACE (CHANGE PASSWORD)
@@ -2123,6 +2065,43 @@ export default function App() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [loading, setLoading]         = useState(true);
 
+  const handleSession = async (session: any) => {
+    if (!session) {
+      setCurrentUser(null);
+      setLoading(false);
+      return;
+    }
+
+    try {
+      const { data: profile, error } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', session.user.id)
+        .single();
+
+      if (error || !profile) {
+        setCurrentUser({
+          id: session.user.id,
+          email: session.user.email || '',
+          name: session.user.user_metadata?.name || 'Novo Usuário',
+          role: 'school_admin'
+        });
+      } else {
+        setCurrentUser({
+          id: profile.id,
+          email: profile.email,
+          name: profile.name,
+          role: profile.role as UserRole,
+          schoolId: profile.school_id || undefined
+        });
+      }
+    } catch (err) {
+      console.error("Erro ao carregar perfil:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const refresh = async () => {
     try {
       const [u, s, c, m, n] = await Promise.all([
@@ -2137,27 +2116,29 @@ export default function App() {
       setCandidates(c);
       setModules(m);
       setNotifications(n);
-
-      // Check current user
-      const saved = localStorage.getItem('active_user_id');
-      if (saved) {
-        const found = u.find((x) => x.id === saved);
-        if (found) {
-          setCurrentUser(found);
-        } else {
-          localStorage.removeItem('active_user_id');
-          setCurrentUser(null);
-        }
-      }
     } catch (err) {
       console.error("Erro ao carregar dados do banco:", err);
-    } finally {
-      setLoading(false);
     }
   };
 
   useEffect(() => {
-    refresh();
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      await handleSession(session);
+      await refresh();
+    });
+
+    const init = async () => {
+      setLoading(true);
+      const { data: { session } } = await supabase.auth.getSession();
+      await handleSession(session);
+      await refresh();
+      setLoading(false);
+    };
+    init();
+
+    return () => {
+      subscription.unsubscribe();
+    };
   }, []);
 
   useEffect(() => {
@@ -2363,23 +2344,25 @@ export default function App() {
     return true;
   };
 
-  const handleForceChangePassword = async (newPass: string) => {
-    if (!currentUser) return;
-    const res = await stateMachine.changePassword('crpazul1234*', newPass, currentUser);
-    if (res.success) {
+
+
+  const handleAssignSchoolUser = async (userId: string, schoolId: string) => {
+    try {
+      const { error } = await supabase
+        .from('users')
+        .update({ school_id: schoolId })
+        .eq('id', userId);
+
+      if (error) throw error;
       await refresh();
-      const updatedUsers = await mockDb.getUsers();
-      const updated = updatedUsers.find((u) => u.id === currentUser.id);
-      if (updated) {
-        setCurrentUser(updated);
-      }
-    } else {
-      alert(res.message);
+    } catch (err: any) {
+      console.error(err);
+      alert(`Erro ao vincular usuário: ${err.message}`);
     }
   };
 
-  const handleLogout = () => {
-    localStorage.removeItem('active_user_id');
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
     setCurrentUser(null);
     setActiveWorkspace('validation');
   };
@@ -2410,11 +2393,31 @@ export default function App() {
   }
 
   if (!currentUser) {
-    return <LoginScreen onLogin={(user) => { setCurrentUser(user); localStorage.setItem('active_user_id', user.id); }} users={users} />;
+    return <LoginScreen />;
   }
 
-  if (currentUser.role === 'school_admin' && currentUser.password === 'crpazul1234*') {
-    return <MandatoryPasswordChange currentUser={currentUser} onSubmit={handleForceChangePassword} onLogout={handleLogout} />;
+  if (currentUser.role === 'school_admin' && !currentUser.schoolId) {
+    return (
+      <div className="min-h-screen bg-brand-darkest flex items-center justify-center p-4 relative overflow-hidden text-center">
+        <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-brand-accent/10 rounded-full blur-[120px] pointer-events-none animate-pulse" />
+        <div className="w-full max-w-md bg-brand-dark/40 backdrop-blur-md border border-brand-medium/30 rounded-3xl shadow-2xl p-8 flex flex-col gap-6 relative z-10 items-center">
+          <AlertTriangle className="w-14 h-14 text-amber-500 animate-bounce" />
+          <h2 className="text-xl font-bold text-slate-100">Acesso Pendente</h2>
+          <p className="text-sm text-slate-400">
+            Sua conta de e-mail <strong>{currentUser.email}</strong> foi cadastrada com sucesso, mas ainda não foi associada a nenhuma escola parceira ou autorizada.
+          </p>
+          <p className="text-xs text-slate-500">
+            Entre em contato com o administrador geral da Azul para liberar o seu acesso à plataforma.
+          </p>
+          <button
+            onClick={handleLogout}
+            className="w-full mt-4 py-2.5 rounded-xl bg-red-500/10 hover:bg-red-500 text-red-400 hover:text-slate-950 border border-red-500/20 hover:border-transparent transition font-bold text-xs cursor-pointer"
+          >
+            Sair da Conta
+          </button>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -2496,6 +2499,7 @@ export default function App() {
                 users={users}
                 onResetPassword={handleResetPassword}
                 onAddAdmin={handleCreateAdmin}
+                onAssignSchoolUser={handleAssignSchoolUser}
               />
             ) : (
               <SchoolSettingsWorkspace
