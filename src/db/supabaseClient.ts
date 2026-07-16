@@ -8,4 +8,4 @@ if (!supabaseUrl || !supabaseAnonKey) {
 }
 
 export const supabase = createClient(supabaseUrl || '', supabaseAnonKey || '');
-// Trigger redeploy with new author
+// Trigger redeploy on new matheuscherutti repo
