@@ -165,6 +165,10 @@ CREATE POLICY "Allow update own school modules or admin select all" ON candidate
   USING (
     candidate_id IN (SELECT id FROM candidates WHERE school_id = get_user_school_id()) OR is_admin()
   );
+CREATE POLICY "Allow insert own school modules or admin insert all" ON candidate_module_progress FOR INSERT
+  WITH CHECK (
+    candidate_id IN (SELECT id FROM candidates WHERE school_id = get_user_school_id()) OR is_admin()
+  );
 
 -- Tabela: audit_logs
 CREATE POLICY "Admin select logs" ON audit_logs FOR SELECT USING (is_admin());
