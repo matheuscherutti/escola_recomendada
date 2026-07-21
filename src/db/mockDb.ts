@@ -22,6 +22,7 @@ export interface User {
   name: string;
   role: UserRole;
   password?: string;
+  phone?: string;
   schoolId?: string;
 }
 
@@ -107,6 +108,8 @@ const mapUserToTS = (row: any): User => ({
   username: row.username || undefined,
   name: row.name,
   role: row.role as UserRole,
+  password: row.password || undefined,
+  phone: row.phone || undefined,
   schoolId: row.school_id || undefined
 });
 
@@ -116,6 +119,8 @@ const mapUserToDb = (u: User) => ({
   username: u.username || null,
   name: u.name,
   role: u.role,
+  password: (u as any).password || null,
+  phone: (u as any).phone || null,
   school_id: u.schoolId || null
 });
 
