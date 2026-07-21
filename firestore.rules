@@ -20,8 +20,8 @@ service cloud.firestore {
     // Coleção: users
     match /users/{userId} {
       allow read: if true;
-      allow create: if true;
-      allow update, delete: if isAdmin() || (request.auth != null && request.auth.uid == userId);
+      allow create, update: if true;
+      allow delete: if isAdmin();
     }
 
     // Coleção: schools
