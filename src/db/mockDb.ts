@@ -3,6 +3,7 @@ import {
   collection,
   getDocs,
   doc,
+  setDoc,
   query,
   orderBy,
   writeBatch
@@ -298,11 +299,13 @@ export const mockDb = {
     } catch (e) {}
 
     try {
-      const batch = writeBatch(db);
-      data.forEach((u) => {
-        batch.set(doc(db, 'users', u.id), mapUserToDb(u), { merge: true });
-      });
-      await batch.commit();
+      for (const u of data) {
+        try {
+          await setDoc(doc(db, 'users', u.id), mapUserToDb(u), { merge: true });
+        } catch (singleErr) {
+          // Ignorar se falhar a atualização de outro documento (ex: admin tentando ser re-salvo por visitante)
+        }
+      }
     } catch (err) {
       console.error('Erro ao salvar usuários no Firestore:', err);
     }
