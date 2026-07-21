@@ -1,10 +1,28 @@
-import { supabase } from './supabaseClient';
-import type { Notification, CandidateStatus, SelectionStatus, ModuleCode, User, ModuleStatus, GupyStatus } from './mockDb';
+import { db, auth } from './firebaseClient';
+import {
+  doc,
+  getDoc,
+  getDocs,
+  setDoc,
+  updateDoc,
+  collection,
+  query,
+  where,
+  writeBatch
+} from 'firebase/firestore';
+import { updatePassword } from 'firebase/auth';
+import type {
+  Notification,
+  CandidateStatus,
+  SelectionStatus,
+  ModuleCode,
+  User,
+  ModuleStatus,
+  GupyStatus
+} from './mockDb';
 
-// Função auxiliar para gerar IDs aleatórios
 const generateId = () => Math.random().toString(36).substring(2, 9);
 
-// Mapeador de textos legíveis de status do processo seletivo
 export const getSelectionStatusLabel = (status: SelectionStatus): string => {
   switch (status) {
     case 'finalized': return 'Finalizou';
@@ -15,7 +33,6 @@ export const getSelectionStatusLabel = (status: SelectionStatus): string => {
   }
 };
 
-// Mapeador de textos legíveis de status geral
 export const getCandidateStatusLabel = (status: CandidateStatus): string => {
   switch (status) {
     case 'pending_validation': return 'Pendente de Validação';
@@ -27,7 +44,7 @@ export const getCandidateStatusLabel = (status: CandidateStatus): string => {
 };
 
 export const stateMachine = {
-  // 1. Cadastrar candidato (Escola ou Admin)
+  // 1. Cadastrar candidato
   createCandidate: async (
     re: string,
     name: string,
@@ -36,16 +53,16 @@ export const stateMachine = {
     currentUser: User
   ): Promise<{ success: boolean; message: string }> => {
     try {
-      // Validações de Unicidade
-      const { data: reCheck, error: reCheckErr } = await supabase.from('candidates').select('id').eq('re', re).limit(1);
-      if (reCheckErr) throw reCheckErr;
-      if (reCheck && reCheck.length > 0) {
+      // Validações de Unicidade no Firestore
+      const reQuery = query(collection(db, 'candidates'), where('re', '==', re));
+      const reSnap = await getDocs(reQuery);
+      if (!reSnap.empty) {
         return { success: false, message: `Já existe um candidato cadastrado com o RE: ${re}` };
       }
 
-      const { data: anacCheck, error: anacCheckErr } = await supabase.from('candidates').select('id').eq('anac', anac).limit(1);
-      if (anacCheckErr) throw anacCheckErr;
-      if (anacCheck && anacCheck.length > 0) {
+      const anacQuery = query(collection(db, 'candidates'), where('anac', '==', anac));
+      const anacSnap = await getDocs(anacQuery);
+      if (!anacSnap.empty) {
         return { success: false, message: `Já existe um candidato cadastrado com a licença ANAC: ${anac}` };
       }
 
@@ -53,7 +70,7 @@ export const stateMachine = {
       const timestamp = new Date().toISOString();
 
       // Grava Candidato
-      const { error: candErr } = await supabase.from('candidates').insert({
+      await setDoc(doc(db, 'candidates', candId), {
         id: candId,
         re,
         name,
@@ -65,11 +82,11 @@ export const stateMachine = {
         created_at: timestamp,
         updated_at: timestamp
       });
-      if (candErr) throw candErr;
 
       // Grava Log de Auditoria
-      const { error: logErr } = await supabase.from('audit_logs').insert({
-        id: `log-${generateId()}`,
+      const logId = `log-${generateId()}`;
+      await setDoc(doc(db, 'audit_logs', logId), {
+        id: logId,
         created_at: timestamp,
         user_id: currentUser.id,
         user_name: currentUser.name,
@@ -79,16 +96,18 @@ export const stateMachine = {
         old_value: '-',
         new_value: `Criado no sistema por ${currentUser.name}`
       });
-      if (logErr) throw logErr;
 
       // Buscar nome da Escola
-      const { data: school, error: schoolErr } = await supabase.from('schools').select('name').eq('id', schoolId).single();
-      if (schoolErr) console.warn('Erro ao ler nome da escola para notificação:', schoolErr);
-      const schoolName = school?.name || 'Escola Parceira';
+      let schoolName = 'Escola Parceira';
+      const schoolSnap = await getDoc(doc(db, 'schools', schoolId));
+      if (schoolSnap.exists()) {
+        schoolName = schoolSnap.data().name || schoolName;
+      }
 
-      // Grava Notificação para o Admin
+      // Notificação
+      const notifId = `not-${generateId()}`;
       const newNotification: Notification = {
-        id: `not-${generateId()}`,
+        id: notifId,
         recipientRole: 'admin',
         title: 'Novo candidato pendente de validação',
         message: `A escola ${schoolName} cadastrou o candidato ${name} (RE: ${re}, ANAC: ${anac}).`,
@@ -98,8 +117,8 @@ export const stateMachine = {
         createdAt: timestamp
       };
 
-      const { error: notifErr } = await supabase.from('notifications').insert({
-        id: newNotification.id,
+      await setDoc(doc(db, 'notifications', notifId), {
+        id: notifId,
         recipient_role: newNotification.recipientRole,
         title: newNotification.title,
         message: newNotification.message,
@@ -108,9 +127,7 @@ export const stateMachine = {
         is_read: newNotification.isRead,
         created_at: newNotification.createdAt
       });
-      if (notifErr) throw notifErr;
 
-      // Disparar evento nativo do browser para alertar a UI em tempo real
       window.dispatchEvent(new CustomEvent('new_notification', { detail: newNotification }));
 
       return { success: true, message: 'Candidato enviado com sucesso! Aguardando validação.' };
@@ -120,7 +137,7 @@ export const stateMachine = {
     }
   },
 
-  // 2. Validação do Funcionário (Aprovar / Recusar - Apenas Admin)
+  // 2. Validação do Funcionário
   validateCandidate: async (
     candidateId: string,
     approve: boolean,
@@ -131,36 +148,28 @@ export const stateMachine = {
     }
 
     try {
-      const { data: candidate, error: candErr } = await supabase
-        .from('candidates')
-        .select('*')
-        .eq('id', candidateId)
-        .single();
-
-      if (candErr || !candidate) {
+      const candRef = doc(db, 'candidates', candidateId);
+      const candSnap = await getDoc(candRef);
+      if (!candSnap.exists()) {
         return { success: false, message: 'Candidato não encontrado.' };
       }
 
+      const candidate = candSnap.data();
       const oldStatus = candidate.status;
       const newStatus: CandidateStatus = approve ? 'in_progress' : 'rejected';
       const timestamp = new Date().toISOString();
 
-      // Atualiza Candidato
-      const { error: updateErr } = await supabase
-        .from('candidates')
-        .update({
-          status: newStatus,
-          validated_by: currentUser.id,
-          validated_at: timestamp,
-          updated_at: timestamp
-        })
-        .eq('id', candidateId);
+      await updateDoc(candRef, {
+        status: newStatus,
+        validated_by: currentUser.id,
+        validated_at: timestamp,
+        updated_at: timestamp
+      });
 
-      if (updateErr) throw updateErr;
-
-      // Grava Log de Auditoria
-      const { error: logErr } = await supabase.from('audit_logs').insert({
-        id: `log-${generateId()}`,
+      // Log
+      const logId = `log-${generateId()}`;
+      await setDoc(doc(db, 'audit_logs', logId), {
+        id: logId,
         created_at: timestamp,
         user_id: currentUser.id,
         user_name: currentUser.name,
@@ -170,52 +179,40 @@ export const stateMachine = {
         old_value: getCandidateStatusLabel(oldStatus as CandidateStatus),
         new_value: getCandidateStatusLabel(newStatus)
       });
-      if (logErr) throw logErr;
 
-      // Se aprovado, instancia os 3 módulos pendentes
+      // Instancia os 3 módulos pendentes se aprovado
       if (approve) {
-        const newModules = [
-          {
-            id: `mod-${generateId()}`,
+        const batch = writeBatch(db);
+        const modules: ModuleCode[] = ['TEORICO', 'SIMULADOR', 'VOO'];
+        modules.forEach((mCode) => {
+          const modId = `mod-${candidateId}-${mCode}`;
+          batch.set(doc(db, 'candidate_module_progress', modId), {
+            id: modId,
             candidate_id: candidate.id,
-            module_code: 'TEORICO',
+            module_code: mCode,
             status: 'pending',
             updated_at: timestamp
-          },
-          {
-            id: `mod-${generateId()}`,
-            candidate_id: candidate.id,
-            module_code: 'SIMULADOR',
-            status: 'pending',
-            updated_at: timestamp
-          },
-          {
-            id: `mod-${generateId()}`,
-            candidate_id: candidate.id,
-            module_code: 'VOO',
-            status: 'pending',
-            updated_at: timestamp
-          }
-        ];
-        const { error: modulesErr } = await supabase.from('candidate_module_progress').insert(newModules);
-        if (modulesErr) throw modulesErr;
+          }, { merge: true });
+        });
+        await batch.commit();
       }
 
-      // Envia Notificação para a Escola de origem
+      // Notificação para a escola
       const resultText = approve ? 'aprovado' : 'recusado';
+      const notifId = `not-${generateId()}`;
       const newNotification: Notification = {
-        id: `not-${generateId()}`,
+        id: notifId,
         recipientSchoolId: candidate.school_id,
         title: `Candidato ${resultText}`,
-        message: `O candidato ${candidate.name} (RE: ${candidate.re}) foi ${resultText} pelo Administrador da Empresa.`,
+        message: `O candidato ${candidate.name} (RE: ${candidate.re}) foi ${resultText} pelo Administrador.`,
         type: 'validation_result',
         candidateId: candidate.id,
         isRead: false,
         createdAt: timestamp
       };
 
-      const { error: notifErr } = await supabase.from('notifications').insert({
-        id: newNotification.id,
+      await setDoc(doc(db, 'notifications', notifId), {
+        id: notifId,
         recipient_school_id: newNotification.recipientSchoolId,
         title: newNotification.title,
         message: newNotification.message,
@@ -224,7 +221,6 @@ export const stateMachine = {
         is_read: newNotification.isRead,
         created_at: newNotification.createdAt
       });
-      if (notifErr) throw notifErr;
 
       window.dispatchEvent(new CustomEvent('new_notification', { detail: newNotification }));
 
@@ -235,7 +231,7 @@ export const stateMachine = {
     }
   },
 
-  // 3. Atualizar Módulo de Treinamento (Anexar Certificado - Escola)
+  // 3. Atualizar Módulo de Treinamento
   completeModule: async (
     candidateId: string,
     moduleCode: ModuleCode,
@@ -248,46 +244,34 @@ export const stateMachine = {
     try {
       const timestamp = new Date().toISOString();
       const targetStatus = currentUser.role === 'admin' ? 'completed' : 'waiting_admin';
+      const modId = `mod-${candidateId}-${moduleCode}`;
 
-      // Atualiza ou insere o progresso do módulo (upsert autocurativo)
-      const { error: updateModErr } = await supabase
-        .from('candidate_module_progress')
-        .upsert({
-          id: `mod-${generateId()}`,
-          candidate_id: candidateId,
-          module_code: moduleCode,
-          status: targetStatus,
-          completion_date: completionDate,
-          school_id: schoolId,
-          certificate_url: certificateName,
-          class_sheets: classSheets,
-          uploaded_at: timestamp,
-          rejection_reason: null,
-          updated_by: currentUser.id,
-          updated_at: timestamp
-        }, {
-          onConflict: 'candidate_id,module_code'
-        });
+      await setDoc(doc(db, 'candidate_module_progress', modId), {
+        id: modId,
+        candidate_id: candidateId,
+        module_code: moduleCode,
+        status: targetStatus,
+        completion_date: completionDate,
+        school_id: schoolId,
+        certificate_url: certificateName,
+        class_sheets: classSheets,
+        uploaded_at: timestamp,
+        rejection_reason: null,
+        updated_by: currentUser.id,
+        updated_at: timestamp
+      }, { merge: true });
 
-      if (updateModErr) {
-        console.error('Erro ao salvar módulo:', updateModErr);
-        return { success: false, message: 'Erro ao registrar progresso do módulo.' };
-      }
-
-      // Buscar dados do candidato
-      const { data: candidate, error: candErr } = await supabase
-        .from('candidates')
-        .select('*')
-        .eq('id', candidateId)
-        .single();
-
-      if (candErr || !candidate) {
+      const candRef = doc(db, 'candidates', candidateId);
+      const candSnap = await getDoc(candRef);
+      if (!candSnap.exists()) {
         return { success: false, message: 'Candidato não encontrado.' };
       }
+      const candidate = candSnap.data();
 
-      // Grava Log de Auditoria
-      const { error: logErr } = await supabase.from('audit_logs').insert({
-        id: `log-${generateId()}`,
+      // Log
+      const logId = `log-${generateId()}`;
+      await setDoc(doc(db, 'audit_logs', logId), {
+        id: logId,
         created_at: timestamp,
         user_id: currentUser.id,
         user_name: currentUser.name,
@@ -297,33 +281,24 @@ export const stateMachine = {
         old_value: 'Pendente',
         new_value: targetStatus === 'completed' ? `Concluído (${certificateName})` : `Aguardando Validação (${certificateName})`
       });
-      if (logErr) throw logErr;
 
-      // Valida se todos os 3 módulos do candidato estão concluídos
-      const { data: candidateModules, error: countErr } = await supabase
-        .from('candidate_module_progress')
-        .select('status')
-        .eq('candidate_id', candidateId);
-
-      if (countErr) throw countErr;
-
-      const completedAll = candidateModules && candidateModules.length === 3 && candidateModules.every(m => m.status === 'completed');
+      // Valida se todos os 3 módulos estão concluídos
+      const modQuery = query(collection(db, 'candidate_module_progress'), where('candidate_id', '==', candidateId));
+      const modSnap = await getDocs(modQuery);
+      const modules = modSnap.docs.map(d => d.data());
+      const completedAll = modules.length === 3 && modules.every(m => m.status === 'completed');
 
       if (completedAll && candidate.status !== 'completed') {
-        // Transição automática para concluído
-        const { error: updateCandErr } = await supabase
-          .from('candidates')
-          .update({
-            status: 'completed',
-            selection_status: 'finalized', // Padrão automático inicial
-            updated_at: timestamp
-          })
-          .eq('id', candidateId);
-        if (updateCandErr) throw updateCandErr;
+        await updateDoc(candRef, {
+          status: 'completed',
+          selection_status: 'finalized',
+          updated_at: timestamp
+        });
 
-        // Log automático do sistema
-        const { error: autoLogErr } = await supabase.from('audit_logs').insert({
-          id: `log-${generateId()}`,
+        // Log de conclusão
+        const autoLogId = `log-${generateId()}`;
+        await setDoc(doc(db, 'audit_logs', autoLogId), {
+          id: autoLogId,
           created_at: timestamp,
           user_name: 'Sistema',
           candidate_id: candidate.id,
@@ -332,11 +307,11 @@ export const stateMachine = {
           old_value: 'Em Andamento',
           new_value: 'Curso Concluído (Gatilho Automático)'
         });
-        if (autoLogErr) throw autoLogErr;
 
-        // Notificação para o Admin (Conclusão total)
+        // Notificação Admin
+        const notifId = `not-${generateId()}`;
         const newNotification: Notification = {
-          id: `not-${generateId()}`,
+          id: notifId,
           recipientRole: 'admin',
           title: 'Treinamento Concluído',
           message: `O candidato ${candidate.name} concluiu todos os 3 módulos obrigatórios de treinamento.`,
@@ -346,8 +321,8 @@ export const stateMachine = {
           createdAt: timestamp
         };
 
-        const { error: notifErr } = await supabase.from('notifications').insert({
-          id: newNotification.id,
+        await setDoc(doc(db, 'notifications', notifId), {
+          id: notifId,
           recipient_role: newNotification.recipientRole,
           title: newNotification.title,
           message: newNotification.message,
@@ -356,14 +331,14 @@ export const stateMachine = {
           is_read: newNotification.isRead,
           created_at: newNotification.createdAt
         });
-        if (notifErr) throw notifErr;
 
         window.dispatchEvent(new CustomEvent('new_notification', { detail: newNotification }));
       }
 
       if (currentUser.role === 'school_admin') {
+        const notifId = `not-${generateId()}`;
         const newNotification: Notification = {
-          id: `not-${generateId()}`,
+          id: notifId,
           recipientRole: 'admin',
           title: 'Novo Certificado Anexado',
           message: `A escola enviou o certificado do módulo ${moduleCode === 'TEORICO' ? 'Teórico' : moduleCode === 'SIMULADOR' ? 'Simulador' : 'Voo'} para o candidato ${candidate.name} (RE: ${candidate.re}).`,
@@ -373,8 +348,8 @@ export const stateMachine = {
           createdAt: timestamp
         };
 
-        const { error: notifErr } = await supabase.from('notifications').insert({
-          id: newNotification.id,
+        await setDoc(doc(db, 'notifications', notifId), {
+          id: notifId,
           recipient_role: newNotification.recipientRole,
           title: newNotification.title,
           message: newNotification.message,
@@ -383,7 +358,7 @@ export const stateMachine = {
           is_read: newNotification.isRead,
           created_at: newNotification.createdAt
         });
-        if (notifErr) console.error('Erro ao enviar notificação de upload:', notifErr);
+
         window.dispatchEvent(new CustomEvent('new_notification', { detail: newNotification }));
       }
 
@@ -406,49 +381,24 @@ export const stateMachine = {
 
     try {
       const timestamp = new Date().toISOString();
+      const candSnap = await getDoc(doc(db, 'candidates', candidateId));
+      if (!candSnap.exists()) return { success: false, message: 'Candidato não encontrado.' };
+      const candidate = candSnap.data();
 
-      // Buscar candidato
-      const { data: candidate, error: candErr } = await supabase
-        .from('candidates')
-        .select('*')
-        .eq('id', candidateId)
-        .single();
+      const modId = `mod-${candidateId}-${moduleCode}`;
+      await updateDoc(doc(db, 'candidate_module_progress', modId), {
+        status: 'pending',
+        certificate_url: null,
+        class_sheets: null,
+        rejection_reason: reason,
+        uploaded_at: null,
+        updated_by: currentUser.id,
+        updated_at: timestamp
+      });
 
-      if (candErr || !candidate) {
-        return { success: false, message: 'Candidato não encontrado.' };
-      }
-
-      // Buscar o registro do progresso
-      const { data: prog, error: progErr } = await supabase
-        .from('candidate_module_progress')
-        .select('*')
-        .eq('candidate_id', candidateId)
-        .eq('module_code', moduleCode)
-        .single();
-
-      if (progErr || !prog) {
-        return { success: false, message: 'Registro de progresso não encontrado.' };
-      }
-
-      // Atualiza o progresso para 'pending', limpa certificado e salva a justificativa
-      const { error: updateErr } = await supabase
-        .from('candidate_module_progress')
-        .update({
-          status: 'pending',
-          certificate_url: null,
-          class_sheets: null,
-          rejection_reason: reason,
-          uploaded_at: null,
-          updated_by: currentUser.id,
-          updated_at: timestamp
-        })
-        .eq('id', prog.id);
-
-      if (updateErr) throw updateErr;
-
-      // Grava Log de Auditoria
-      const { error: logErr } = await supabase.from('audit_logs').insert({
-        id: `log-${generateId()}`,
+      const logId = `log-${generateId()}`;
+      await setDoc(doc(db, 'audit_logs', logId), {
+        id: logId,
         created_at: timestamp,
         user_id: currentUser.id,
         user_name: currentUser.name,
@@ -458,13 +408,12 @@ export const stateMachine = {
         old_value: 'Aguardando Validação',
         new_value: `Recusado (Justificativa: ${reason})`
       });
-      if (logErr) throw logErr;
 
-      // Cria notificação para a escola
       const modLabel = moduleCode === 'TEORICO' ? 'Teórico' : moduleCode === 'SIMULADOR' ? 'Simulador' : 'Voo';
+      const notifId = `not-${generateId()}`;
       const newNotification: Notification = {
-        id: `not-${generateId()}`,
-        recipientSchoolId: candidate.schoolId,
+        id: notifId,
+        recipientSchoolId: candidate.school_id,
         title: 'Certificado Recusado',
         message: `O certificado do módulo ${modLabel} do candidato ${candidate.name} (RE: ${candidate.re}) foi recusado pelo Administrador. Motivo: ${reason}.`,
         type: 'validation_result',
@@ -473,8 +422,8 @@ export const stateMachine = {
         createdAt: timestamp
       };
 
-      const { error: notifErr } = await supabase.from('notifications').insert({
-        id: newNotification.id,
+      await setDoc(doc(db, 'notifications', notifId), {
+        id: notifId,
         recipient_school_id: newNotification.recipientSchoolId,
         title: newNotification.title,
         message: newNotification.message,
@@ -483,7 +432,7 @@ export const stateMachine = {
         is_read: newNotification.isRead,
         created_at: newNotification.createdAt
       });
-      if (notifErr) console.error('Erro ao enviar notificação de recusa:', notifErr);
+
       window.dispatchEvent(new CustomEvent('new_notification', { detail: newNotification }));
 
       return { success: true, message: 'Certificado rejeitado com sucesso.' };
@@ -493,7 +442,6 @@ export const stateMachine = {
     }
   },
 
-  // 4. Alterar Status do Processo Seletivo (Apenas Admin)
   updateSelectionStatus: async (
     candidateId: string,
     newStatus: SelectionStatus,
@@ -504,15 +452,10 @@ export const stateMachine = {
     }
 
     try {
-      const { data: candidate, error: candErr } = await supabase
-        .from('candidates')
-        .select('*')
-        .eq('id', candidateId)
-        .single();
-
-      if (candErr || !candidate) {
-        return { success: false, message: 'Candidato não encontrado.' };
-      }
+      const candRef = doc(db, 'candidates', candidateId);
+      const candSnap = await getDoc(candRef);
+      if (!candSnap.exists()) return { success: false, message: 'Candidato não encontrado.' };
+      const candidate = candSnap.data();
 
       if (candidate.status !== 'completed') {
         return { success: false, message: 'Apenas candidatos com o treinamento concluído podem entrar no processo seletivo.' };
@@ -521,27 +464,17 @@ export const stateMachine = {
       const oldStatus = candidate.selection_status;
       const timestamp = new Date().toISOString();
 
-      // Atualiza Status do Processo Seletivo
       const updateData: any = {
         selection_status: newStatus,
-        updated_at: timestamp
+        updated_at: timestamp,
+        rejected_at: newStatus === 'rejected' ? timestamp : null
       };
-      if (newStatus === 'rejected') {
-        updateData.rejected_at = timestamp;
-      } else {
-        updateData.rejected_at = null;
-      }
 
-      const { error: updateErr } = await supabase
-        .from('candidates')
-        .update(updateData)
-        .eq('id', candidateId);
+      await updateDoc(candRef, updateData);
 
-      if (updateErr) throw updateErr;
-
-      // Grava Log de Auditoria
-      const { error: logErr } = await supabase.from('audit_logs').insert({
-        id: `log-${generateId()}`,
+      const logId = `log-${generateId()}`;
+      await setDoc(doc(db, 'audit_logs', logId), {
+        id: logId,
         created_at: timestamp,
         user_id: currentUser.id,
         user_name: currentUser.name,
@@ -551,11 +484,10 @@ export const stateMachine = {
         old_value: getSelectionStatusLabel(oldStatus as SelectionStatus),
         new_value: getSelectionStatusLabel(newStatus)
       });
-      if (logErr) throw logErr;
 
-      // Envia Notificação para a Escola em tempo real
+      const notifId = `not-${generateId()}`;
       const newNotification: Notification = {
-        id: `not-${generateId()}`,
+        id: notifId,
         recipientSchoolId: candidate.school_id,
         title: 'Status Processo Seletivo',
         message: `O status do processo seletivo do candidato ${candidate.name} foi atualizado para: "${getSelectionStatusLabel(newStatus)}".`,
@@ -565,8 +497,8 @@ export const stateMachine = {
         createdAt: timestamp
       };
 
-      const { error: notifErr } = await supabase.from('notifications').insert({
-        id: newNotification.id,
+      await setDoc(doc(db, 'notifications', notifId), {
+        id: notifId,
         recipient_school_id: newNotification.recipientSchoolId,
         title: newNotification.title,
         message: newNotification.message,
@@ -575,7 +507,6 @@ export const stateMachine = {
         is_read: newNotification.isRead,
         created_at: newNotification.createdAt
       });
-      if (notifErr) throw notifErr;
 
       window.dispatchEvent(new CustomEvent('new_notification', { detail: newNotification }));
 
@@ -586,39 +517,28 @@ export const stateMachine = {
     }
   },
 
-  // 4.1 Atualizar Status Gupy
   updateGupyStatus: async (
     candidateId: string,
     gupyStatus: GupyStatus,
     currentUser: User
   ): Promise<{ success: boolean; message: string }> => {
     try {
-      const { data: candidate, error: candErr } = await supabase
-        .from('candidates')
-        .select('*')
-        .eq('id', candidateId)
-        .single();
-
-      if (candErr || !candidate) {
-        return { success: false, message: 'Candidato não encontrado.' };
-      }
+      const candRef = doc(db, 'candidates', candidateId);
+      const candSnap = await getDoc(candRef);
+      if (!candSnap.exists()) return { success: false, message: 'Candidato não encontrado.' };
+      const candidate = candSnap.data();
 
       const oldGupy = candidate.gupy_status;
       const timestamp = new Date().toISOString();
 
-      const { error: updateErr } = await supabase
-        .from('candidates')
-        .update({
-          gupy_status: gupyStatus,
-          updated_at: timestamp
-        })
-        .eq('id', candidateId);
+      await updateDoc(candRef, {
+        gupy_status: gupyStatus,
+        updated_at: timestamp
+      });
 
-      if (updateErr) throw updateErr;
-
-      // Grava Log de Auditoria
-      const { error: logErr } = await supabase.from('audit_logs').insert({
-        id: `log-${generateId()}`,
+      const logId = `log-${generateId()}`;
+      await setDoc(doc(db, 'audit_logs', logId), {
+        id: logId,
         created_at: timestamp,
         user_id: currentUser.id,
         user_name: currentUser.name,
@@ -628,7 +548,6 @@ export const stateMachine = {
         old_value: oldGupy === 'gupy_min' ? 'Na Gupy (com mínimos)' : oldGupy === 'gupy_no_min' ? 'Na Gupy (sem mínimos)' : oldGupy === 'not_gupy' ? 'Não está na Gupy' : 'Não Informado',
         new_value: gupyStatus === 'gupy_min' ? 'Na Gupy (com mínimos)' : gupyStatus === 'gupy_no_min' ? 'Na Gupy (sem mínimos)' : 'Não está na Gupy'
       });
-      if (logErr) throw logErr;
 
       return { success: true, message: 'Status Gupy atualizado com sucesso.' };
     } catch (err: any) {
@@ -637,7 +556,6 @@ export const stateMachine = {
     }
   },
 
-  // 5. Editar ou Anular Módulo (Apenas Admin)
   adminEditModule: async (
     candidateId: string,
     moduleCode: ModuleCode,
@@ -654,75 +572,41 @@ export const stateMachine = {
 
     try {
       const timestamp = new Date().toISOString();
-
-      // Buscar módulo atual
-      const { data: oldModule, error: oldModErr } = await supabase
-        .from('candidate_module_progress')
-        .select('*')
-        .eq('candidate_id', candidateId)
-        .eq('module_code', moduleCode)
-        .single();
-
-      if (oldModErr || !oldModule) {
-        return { success: false, message: 'Registro do módulo não encontrado.' };
-      }
+      const modId = `mod-${candidateId}-${moduleCode}`;
+      const modRef = doc(db, 'candidate_module_progress', modId);
 
       if (status === 'pending') {
-        // Anulação
-        const { error: updateErr } = await supabase
-          .from('candidate_module_progress')
-          .update({
-            status: 'pending',
-            completion_date: null,
-            school_id: null,
-            certificate_url: null,
-            class_sheets: null,
-            uploaded_at: null,
-            updated_by: null,
-            updated_at: timestamp
-          })
-          .eq('candidate_id', candidateId)
-          .eq('module_code', moduleCode);
-        if (updateErr) throw updateErr;
+        await updateDoc(modRef, {
+          status: 'pending',
+          completion_date: null,
+          school_id: null,
+          certificate_url: null,
+          class_sheets: null,
+          uploaded_at: null,
+          updated_by: null,
+          updated_at: timestamp
+        });
       } else {
-        // Edição
-        const { error: updateErr } = await supabase
-          .from('candidate_module_progress')
-          .update({
-            status: 'completed',
-            completion_date: completionDate || null,
-            school_id: schoolId || null,
-            certificate_url: certificateName || null,
-            class_sheets: classSheets || null,
-            updated_by: currentUser.id,
-            updated_at: timestamp
-          })
-          .eq('candidate_id', candidateId)
-          .eq('module_code', moduleCode);
-        if (updateErr) throw updateErr;
+        await updateDoc(modRef, {
+          status: 'completed',
+          completion_date: completionDate || null,
+          school_id: schoolId || null,
+          certificate_url: certificateName || null,
+          class_sheets: classSheets || null,
+          updated_by: currentUser.id,
+          updated_at: timestamp
+        });
       }
 
-      // Buscar dados do candidato
-      const { data: candidate, error: candErr } = await supabase
-        .from('candidates')
-        .select('*')
-        .eq('id', candidateId)
-        .single();
+      const candRef = doc(db, 'candidates', candidateId);
+      const candSnap = await getDoc(candRef);
+      if (candSnap.exists()) {
+        const candidate = candSnap.data();
+        const modQuery = query(collection(db, 'candidate_module_progress'), where('candidate_id', '==', candidateId));
+        const modSnap = await getDocs(modQuery);
+        const modules = modSnap.docs.map(d => d.data());
+        const completedAll = modules.length === 3 && modules.every(m => m.status === 'completed');
 
-      if (candErr) throw candErr;
-
-      if (candidate) {
-        // Obter módulos atualizados
-        const { data: candidateModules, error: countErr } = await supabase
-          .from('candidate_module_progress')
-          .select('status')
-          .eq('candidate_id', candidateId);
-
-        if (countErr) throw countErr;
-
-        const completedAll = candidateModules && candidateModules.length === 3 && candidateModules.every(m => m.status === 'completed');
-
-        const oldStatus = candidate.status;
         let newStatus = candidate.status;
         let newSelectionStatus = candidate.selection_status;
 
@@ -734,46 +618,11 @@ export const stateMachine = {
           newSelectionStatus = 'finalized';
         }
 
-        const { error: updateCandErr } = await supabase
-          .from('candidates')
-          .update({
-            status: newStatus,
-            selection_status: newSelectionStatus,
-            updated_at: timestamp
-          })
-          .eq('id', candidateId);
-        if (updateCandErr) throw updateCandErr;
-
-        // Grava Logs de Auditoria
-        const logsToInsert = [];
-
-        logsToInsert.push({
-          id: `log-${generateId()}`,
-          created_at: timestamp,
-          user_id: currentUser.id,
-          user_name: currentUser.name,
-          candidate_id: candidate.id,
-          candidate_name: candidate.name,
-          changed_field: `Módulo ${moduleCode.charAt(0) + moduleCode.slice(1).toLowerCase()}`,
-          old_value: oldModule.status === 'completed' ? `Concluído (${oldModule.certificate_url})` : 'Pendente',
-          new_value: status === 'pending' ? 'Pendente (Anulado)' : `Editado (${certificateName})`
+        await updateDoc(candRef, {
+          status: newStatus,
+          selection_status: newSelectionStatus,
+          updated_at: timestamp
         });
-
-        if (oldStatus !== newStatus) {
-          logsToInsert.push({
-            id: `log-${generateId()}`,
-            created_at: timestamp,
-            user_name: 'Sistema',
-            candidate_id: candidate.id,
-            candidate_name: candidate.name,
-            changed_field: 'Status Geral',
-            old_value: getCandidateStatusLabel(oldStatus as CandidateStatus),
-            new_value: getCandidateStatusLabel(newStatus as CandidateStatus)
-          });
-        }
-
-        const { error: logsErr } = await supabase.from('audit_logs').insert(logsToInsert);
-        if (logsErr) throw logsErr;
       }
 
       return { success: true, message: status === 'pending' ? 'Módulo anulado com sucesso.' : 'Módulo atualizado com sucesso.' };
@@ -783,7 +632,7 @@ export const stateMachine = {
     }
   },
 
-  // 10. Alterar senha
+  // 10. Alterar senha via Firebase Auth
   changePassword: async (
     _oldPass: string,
     newPass: string,
@@ -794,14 +643,14 @@ export const stateMachine = {
         return { success: false, message: 'Você não pode usar a senha padrão como sua nova senha.' };
       }
 
-      // Atualiza Senha no Supabase Auth
-      const { error: authErr } = await supabase.auth.updateUser({ password: newPass });
-      if (authErr) throw authErr;
+      if (auth.currentUser) {
+        await updatePassword(auth.currentUser, newPass);
+      }
 
-      // Auditoria
       const timestamp = new Date().toISOString();
-      const { error: logErr } = await supabase.from('audit_logs').insert({
-        id: `log-${generateId()}`,
+      const logId = `log-${generateId()}`;
+      await setDoc(doc(db, 'audit_logs', logId), {
+        id: logId,
         created_at: timestamp,
         user_name: currentUser.name,
         user_id: currentUser.id,
@@ -811,7 +660,6 @@ export const stateMachine = {
         old_value: '********',
         new_value: 'Senha alterada com sucesso'
       });
-      if (logErr) throw logErr;
 
       return { success: true, message: 'Senha alterada com sucesso!' };
     } catch (err: any) {
@@ -823,6 +671,7 @@ export const stateMachine = {
   // 11. Resetar senha por Admin
   resetPassword: async (
     schoolUserId: string,
+    newPassword: string,
     currentUser: User
   ): Promise<{ success: boolean; message: string }> => {
     if (currentUser.role !== 'admin') {
@@ -830,42 +679,34 @@ export const stateMachine = {
     }
 
     try {
-      const { data: targetUser, error: userErr } = await supabase
-        .from('users')
-        .select('*')
-        .eq('id', schoolUserId)
-        .single();
+      const userRef = doc(db, 'users', schoolUserId);
+      const userSnap = await getDoc(userRef);
+      if (!userSnap.exists()) return { success: false, message: 'Usuário não encontrado.' };
 
-      if (userErr || !targetUser) {
-        return { success: false, message: 'Usuário escolar não encontrado.' };
-      }
-
-      // Disparar e-mail de redefinição de senha do Supabase
-      const { error: resetErr } = await supabase.auth.resetPasswordForEmail(targetUser.email, {
-        redirectTo: window.location.origin
+      const targetUser = userSnap.data();
+      await updateDoc(userRef, {
+        password: newPassword,
+        updated_at: new Date().toISOString()
       });
 
-      if (resetErr) throw resetErr;
-
-      // Auditoria
       const timestamp = new Date().toISOString();
-      const { error: logErr } = await supabase.from('audit_logs').insert({
-        id: `log-${generateId()}`,
+      const logId = `log-${generateId()}`;
+      await setDoc(doc(db, 'audit_logs', logId), {
+        id: logId,
         created_at: timestamp,
         user_name: currentUser.name,
         user_id: currentUser.id,
         candidate_id: '-',
         candidate_name: targetUser.name,
-        changed_field: 'Solicitação de Redefinição de Senha',
+        changed_field: 'Redefinição Direta de Senha',
         old_value: '********',
-        new_value: 'E-mail de recuperação enviado pelo Admin'
+        new_value: 'Nova senha definida pelo Admin'
       });
-      if (logErr) throw logErr;
 
-      return { success: true, message: 'E-mail de redefinição de senha enviado com sucesso!' };
+      return { success: true, message: 'Senha redefinida com sucesso!' };
     } catch (err: any) {
       console.error('Erro no resetPassword:', err);
-      return { success: false, message: `Erro ao solicitar redefinição de senha: ${err.message}` };
+      return { success: false, message: `Erro ao redefinir senha: ${err.message}` };
     }
   },
 
@@ -879,35 +720,23 @@ export const stateMachine = {
 
     try {
       const timestamp = new Date().toISOString();
+      const candRef = doc(db, 'candidates', candidateId);
+      const candSnap = await getDoc(candRef);
+      if (!candSnap.exists()) return { success: false, message: 'Candidato não encontrado.' };
+      const candidate = candSnap.data();
 
-      // Buscar dados do candidato
-      const { data: candidate, error: candErr } = await supabase
-        .from('candidates')
-        .select('*')
-        .eq('id', candidateId)
-        .single();
+      await updateDoc(candRef, {
+        status: 'in_progress',
+        selection_status: 'finalized',
+        rejected_at: null,
+        updated_at: timestamp
+      });
 
-      if (candErr || !candidate) {
-        return { success: false, message: 'Candidato não encontrado.' };
-      }
-
-      // Reiniciar status do candidato no banco de dados
-      const { error: updateErr } = await supabase
-        .from('candidates')
-        .update({
-          status: 'in_progress',
-          selection_status: 'finalized',
-          rejected_at: null,
-          updated_at: timestamp
-        })
-        .eq('id', candidateId);
-
-      if (updateErr) throw updateErr;
-
-      // Limpar todos os registros de progresso de módulo
-      const { error: resetModsErr } = await supabase
-        .from('candidate_module_progress')
-        .update({
+      const modQuery = query(collection(db, 'candidate_module_progress'), where('candidate_id', '==', candidateId));
+      const modSnap = await getDocs(modQuery);
+      const batch = writeBatch(db);
+      modSnap.docs.forEach((mDoc) => {
+        batch.update(mDoc.ref, {
           status: 'pending',
           completion_date: null,
           school_id: null,
@@ -916,14 +745,13 @@ export const stateMachine = {
           uploaded_at: null,
           updated_by: null,
           updated_at: timestamp
-        })
-        .eq('candidate_id', candidateId);
+        });
+      });
+      await batch.commit();
 
-      if (resetModsErr) throw resetModsErr;
-
-      // Registrar Log de Auditoria
-      const { error: logErr } = await supabase.from('audit_logs').insert({
-        id: `log-${generateId()}`,
+      const logId = `log-${generateId()}`;
+      await setDoc(doc(db, 'audit_logs', logId), {
+        id: logId,
         created_at: timestamp,
         user_id: currentUser.id,
         user_name: currentUser.name,
@@ -933,7 +761,6 @@ export const stateMachine = {
         old_value: 'Reprovado (Quarentena Finalizada)',
         new_value: 'Treinamento Reiniciado'
       });
-      if (logErr) throw logErr;
 
       return { success: true, message: 'Processo do candidato reiniciado com sucesso!' };
     } catch (err: any) {

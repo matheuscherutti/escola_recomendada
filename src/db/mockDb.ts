@@ -1,4 +1,12 @@
-import { supabase } from './supabaseClient';
+import { db } from './firebaseClient';
+import {
+  collection,
+  getDocs,
+  doc,
+  query,
+  orderBy,
+  writeBatch
+} from 'firebase/firestore';
 
 export type UserRole = 'admin' | 'school_admin';
 export type CandidateStatus = 'pending_validation' | 'rejected' | 'in_progress' | 'completed';
@@ -10,10 +18,11 @@ export type ModuleStatus = 'pending' | 'waiting_admin' | 'completed';
 export interface User {
   id: string;
   email: string;
+  username?: string;
   name: string;
   role: UserRole;
   password?: string;
-  schoolId?: string; // Presente se role for 'school_admin'
+  schoolId?: string;
 }
 
 export interface School {
@@ -84,234 +93,18 @@ export interface Notification {
 }
 
 // Dados mockados iniciais para Seeding
-const INITIAL_USERS: User[] = [
-  { id: 'usr-admin', email: 'admin@empresa.com', name: 'Admin Geral (Minha Empresa)', role: 'admin', password: 'crpazul1234*' },
-  { id: 'usr-alfa', email: 'contato@escolaalfa.com.br', name: 'Renato Silva', role: 'school_admin', schoolId: 'sch-alfa', password: 'crpazul1234*' },
-  { id: 'usr-beta', email: 'contato@escolabeta.com.br', name: 'Ana Souza', role: 'school_admin', schoolId: 'sch-beta', password: 'crpazul1234*' }
+export const INITIAL_USERS: User[] = [
+  { id: 'usr-admin', email: 'admin@empresa.com', username: 'admin', name: 'Admin Geral (Minha Empresa)', role: 'admin', password: 'crpazul1234*' }
 ];
 
-const INITIAL_SCHOOLS: School[] = [
-  { id: 'sch-alfa', name: 'Escola Recomendada Alfa', cnpj: '12345678000199', active: true, contactName: 'Renato Silva', email: 'contato@escolaalfa.com.br', phone: '11999998888' },
-  { id: 'sch-beta', name: 'Escola Recomendada Beta', cnpj: '98765432000188', active: true, contactName: 'Ana Souza', email: 'contato@escolabeta.com.br', phone: '11988887777' }
-];
+export const INITIAL_SCHOOLS: School[] = [];
 
-const INITIAL_CANDIDATES: Candidate[] = [
-  {
-    id: 'cand-1',
-    re: 'RE-1092',
-    name: 'Roberto Alencar',
-    anac: 'ANAC-99281',
-    schoolId: 'sch-alfa',
-    status: 'completed',
-    selectionStatus: 'finalized',
-    gupyStatus: 'gupy_min',
-    validatedBy: 'usr-admin',
-    validatedAt: '2026-07-10T10:00:00Z',
-    createdAt: '2026-07-09T14:32:00Z',
-    updatedAt: '2026-07-12T16:45:00Z'
-  },
-  {
-    id: 'cand-2',
-    re: 'RE-8823',
-    name: 'Mariana Costa',
-    anac: 'ANAC-44123',
-    schoolId: 'sch-beta',
-    status: 'in_progress',
-    selectionStatus: 'finalized',
-    validatedBy: 'usr-admin',
-    validatedAt: '2026-07-12T09:15:00Z',
-    createdAt: '2026-07-11T16:20:00Z',
-    updatedAt: '2026-07-12T11:00:00Z'
-  },
-  {
-    id: 'cand-3',
-    re: 'RE-5561',
-    name: 'Vitor Fernandes',
-    anac: 'ANAC-88772',
-    schoolId: 'sch-alfa',
-    status: 'pending_validation',
-    selectionStatus: 'finalized',
-    createdAt: '2026-07-14T11:00:00Z',
-    updatedAt: '2026-07-14T11:00:00Z'
-  }
-];
-
-const INITIAL_MODULE_PROGRESS: CandidateModuleProgress[] = [
-  {
-    id: 'mod-1',
-    candidateId: 'cand-1',
-    moduleCode: 'TEORICO',
-    status: 'completed',
-    completionDate: '2026-07-11',
-    schoolId: 'sch-alfa',
-    certificateUrl: 'certificado_teorico_roberto.pdf',
-    uploadedAt: '2026-07-11T15:00:00Z',
-    updatedBy: 'usr-alfa',
-    updatedAt: '2026-07-11T15:00:00Z'
-  },
-  {
-    id: 'mod-2',
-    candidateId: 'cand-1',
-    moduleCode: 'SIMULADOR',
-    status: 'completed',
-    completionDate: '2026-07-12',
-    schoolId: 'sch-alfa',
-    certificateUrl: 'certificado_simulador_roberto.pdf',
-    uploadedAt: '2026-07-12T11:20:00Z',
-    updatedBy: 'usr-alfa',
-    updatedAt: '2026-07-12T11:20:00Z'
-  },
-  {
-    id: 'mod-3',
-    candidateId: 'cand-1',
-    moduleCode: 'VOO',
-    status: 'completed',
-    completionDate: '2026-07-12',
-    schoolId: 'sch-alfa',
-    certificateUrl: 'certificado_voo_roberto.pdf',
-    uploadedAt: '2026-07-12T16:45:00Z',
-    updatedBy: 'usr-alfa',
-    updatedAt: '2026-07-12T16:45:00Z'
-  },
-  {
-    id: 'mod-4',
-    candidateId: 'cand-2',
-    moduleCode: 'TEORICO',
-    status: 'completed',
-    completionDate: '2026-07-12',
-    schoolId: 'sch-beta',
-    certificateUrl: 'certificado_teorico_mariana.pdf',
-    uploadedAt: '2026-07-12T11:00:00Z',
-    updatedBy: 'usr-beta',
-    updatedAt: '2026-07-12T11:00:00Z'
-  },
-  {
-    id: 'mod-5',
-    candidateId: 'cand-2',
-    moduleCode: 'SIMULADOR',
-    status: 'waiting_admin',
-    completionDate: '2026-07-14',
-    schoolId: 'sch-beta',
-    certificateUrl: 'certificado_simulador_mariana.pdf',
-    uploadedAt: '2026-07-14T14:20:00Z',
-    updatedBy: 'usr-beta',
-    updatedAt: '2026-07-14T14:20:00Z'
-  },
-  {
-    id: 'mod-6',
-    candidateId: 'cand-2',
-    moduleCode: 'VOO',
-    status: 'pending',
-    updatedAt: '2026-07-12T09:15:00Z'
-  }
-];
-
-const INITIAL_LOGS: AuditLog[] = [
-  {
-    id: 'log-1',
-    createdAt: '2026-07-09T14:32:00Z',
-    userName: 'Renato Silva (Alfa)',
-    userId: 'usr-alfa',
-    candidateId: 'cand-1',
-    candidateName: 'Roberto Alencar',
-    changedField: 'Cadastro',
-    oldValue: '-',
-    newValue: 'Criado no sistema pela Escola Alfa'
-  },
-  {
-    id: 'log-2',
-    createdAt: '2026-07-10T10:00:00Z',
-    userName: 'Admin Geral (Minha Empresa)',
-    userId: 'usr-admin',
-    candidateId: 'cand-1',
-    candidateName: 'Roberto Alencar',
-    changedField: 'Validação',
-    oldValue: 'Pendente de Validação',
-    newValue: 'Aprovado (Validação Concluída)'
-  },
-  {
-    id: 'log-3',
-    createdAt: '2026-07-11T15:00:00Z',
-    userName: 'Renato Silva (Alfa)',
-    userId: 'usr-alfa',
-    candidateId: 'cand-1',
-    candidateName: 'Roberto Alencar',
-    changedField: 'Módulo Teórico',
-    oldValue: 'Pendente',
-    newValue: 'Concluído (Certificado Anexado)'
-  },
-  {
-    id: 'log-4',
-    createdAt: '2026-07-12T11:20:00Z',
-    userName: 'Renato Silva (Alfa)',
-    userId: 'usr-alfa',
-    candidateId: 'cand-1',
-    candidateName: 'Roberto Alencar',
-    changedField: 'Módulo Simulador',
-    oldValue: 'Pendente',
-    newValue: 'Concluído (Certificado Anexado)'
-  },
-  {
-    id: 'log-5',
-    createdAt: '2026-07-12T16:45:00Z',
-    userName: 'Renato Silva (Alfa)',
-    userId: 'usr-alfa',
-    candidateId: 'cand-1',
-    candidateName: 'Roberto Alencar',
-    changedField: 'Módulo Voo',
-    oldValue: 'Pendente',
-    newValue: 'Concluído (Certificado Anexado)'
-  },
-  {
-    id: 'log-6',
-    createdAt: '2026-07-12T16:45:00Z',
-    userName: 'System',
-    candidateId: 'cand-1',
-    candidateName: 'Roberto Alencar',
-    changedField: 'Status Geral',
-    oldValue: 'Em Andamento',
-    newValue: 'Curso Concluído (Gatilho Automático)'
-  },
-  {
-    id: 'log-7',
-    createdAt: '2026-07-14T14:20:00Z',
-    userName: 'Ana Souza (Beta)',
-    userId: 'usr-beta',
-    candidateId: 'cand-2',
-    candidateName: 'Mariana Costa',
-    changedField: 'Módulo Simulador',
-    oldValue: 'Pendente',
-    newValue: 'Enviado para aprovação do Admin (Certificado Anexado)'
-  }
-];
-
-const INITIAL_NOTIFICATIONS: Notification[] = [
-  {
-    id: 'not-1',
-    recipientRole: 'admin',
-    title: 'Novo candidato pendente de validação',
-    message: 'A escola Escola Recomendada Alfa enviou o candidato Vitor Fernandes para validação.',
-    type: 'pending_validation',
-    candidateId: 'cand-3',
-    isRead: false,
-    createdAt: '2026-07-14T11:00:00Z'
-  },
-  {
-    id: 'not-2',
-    recipientRole: 'admin',
-    title: 'Módulo Simulador anexado',
-    message: 'A escola Escola Recomendada Beta anexou o certificado de Simulador para Mariana Costa.',
-    type: 'pending_validation',
-    candidateId: 'cand-2',
-    isRead: false,
-    createdAt: '2026-07-14T14:20:00Z'
-  }
-];
 
 // Mappers para converter entre CamelCase e SnakeCase
 const mapUserToTS = (row: any): User => ({
   id: row.id,
   email: row.email,
+  username: row.username || undefined,
   name: row.name,
   role: row.role as UserRole,
   schoolId: row.school_id || undefined
@@ -320,6 +113,7 @@ const mapUserToTS = (row: any): User => ({
 const mapUserToDb = (u: User) => ({
   id: u.id,
   email: u.email,
+  username: u.username || null,
   name: u.name,
   role: u.role,
   school_id: u.schoolId || null
@@ -459,132 +253,214 @@ const mapNotificationToDb = (n: Notification) => ({
   read_at: n.readAt || null
 });
 
-// Camada de Banco de Dados Assíncrona com Supabase
+// Camada de Banco de Dados Assíncrona com Cloud Firestore
 export const mockDb = {
   getUsers: async (): Promise<User[]> => {
-    const { data, error } = await supabase.from('users').select('*');
-    if (error) {
-      console.error('Erro ao ler usuários:', error);
-      throw error;
+    let list: User[] = [];
+    try {
+      const snap = await getDocs(collection(db, 'users'));
+      if (!snap.empty) {
+        list = snap.docs.map((d) => mapUserToTS({ id: d.id, ...d.data() }));
+      } else {
+        await mockDb.setUsers(INITIAL_USERS);
+        list = [...INITIAL_USERS];
+      }
+    } catch (err) {
+      console.error('Erro ao ler usuários no Firestore:', err);
+      list = [...INITIAL_USERS];
     }
-    return data.map(mapUserToTS);
+
+    try {
+      const stored = localStorage.getItem('escola_registered_users');
+      if (stored) {
+        const parsed: User[] = JSON.parse(stored);
+        parsed.forEach(lu => {
+          const idx = list.findIndex(u => u.id === lu.id || u.email === lu.email);
+          if (idx >= 0) {
+            list[idx] = { ...list[idx], ...lu };
+          } else {
+            list.push(lu);
+          }
+        });
+      }
+    } catch (e) {}
+
+    return list;
   },
   setUsers: async (data: User[]): Promise<void> => {
-    const { error } = await supabase.from('users').upsert(data.map(mapUserToDb));
-    if (error) {
-      console.error('Erro ao salvar usuários:', error);
-      throw error;
+    try {
+      localStorage.setItem('escola_registered_users', JSON.stringify(data));
+    } catch (e) {}
+
+    try {
+      const batch = writeBatch(db);
+      data.forEach((u) => {
+        batch.set(doc(db, 'users', u.id), mapUserToDb(u), { merge: true });
+      });
+      await batch.commit();
+    } catch (err) {
+      console.error('Erro ao salvar usuários no Firestore:', err);
     }
   },
   getSchools: async (): Promise<School[]> => {
-    const { data, error } = await supabase.from('schools').select('*');
-    if (error) {
-      console.error('Erro ao ler escolas:', error);
-      throw error;
+    let list: School[] = [];
+    try {
+      const snap = await getDocs(collection(db, 'schools'));
+      if (!snap.empty) {
+        list = snap.docs.map((d) => mapSchoolToTS({ id: d.id, ...d.data() }));
+      } else {
+        await mockDb.setSchools(INITIAL_SCHOOLS);
+        list = [...INITIAL_SCHOOLS];
+      }
+    } catch (err) {
+      console.error('Erro ao ler escolas no Firestore:', err);
+      list = [...INITIAL_SCHOOLS];
     }
-    return data.map(mapSchoolToTS);
+
+    try {
+      const stored = localStorage.getItem('escola_registered_schools');
+      if (stored) {
+        const parsed: School[] = JSON.parse(stored);
+        parsed.forEach(ls => {
+          if (!list.some(s => s.id === ls.id)) {
+            list.push(ls);
+          }
+        });
+      }
+    } catch (e) {}
+
+    return list;
   },
   setSchools: async (data: School[]): Promise<void> => {
-    const { error } = await supabase.from('schools').upsert(data.map(mapSchoolToDb));
-    if (error) {
-      console.error('Erro ao salvar escolas:', error);
-      throw error;
+    try {
+      localStorage.setItem('escola_registered_schools', JSON.stringify(data));
+    } catch (e) {}
+
+    try {
+      const batch = writeBatch(db);
+      data.forEach((s) => {
+        batch.set(doc(db, 'schools', s.id), mapSchoolToDb(s), { merge: true });
+      });
+      await batch.commit();
+    } catch (err) {
+      console.error('Erro ao salvar escolas no Firestore:', err);
     }
   },
   getCandidates: async (): Promise<Candidate[]> => {
-    const { data, error } = await supabase.from('candidates').select('*');
-    if (error) {
-      console.error('Erro ao ler candidatos:', error);
-      throw error;
+    try {
+      const snap = await getDocs(collection(db, 'candidates'));
+      return snap.docs.map((d) => mapCandidateToTS({ id: d.id, ...d.data() }));
+    } catch (err) {
+      console.error('Erro ao ler candidatos no Firestore:', err);
+      return [];
     }
-    return data.map(mapCandidateToTS);
   },
   setCandidates: async (data: Candidate[]): Promise<void> => {
-    const { error } = await supabase.from('candidates').upsert(data.map(mapCandidateToDb));
-    if (error) {
-      console.error('Erro ao salvar candidatos:', error);
-      throw error;
-    }
+    const batch = writeBatch(db);
+    data.forEach((c) => {
+      batch.set(doc(db, 'candidates', c.id), mapCandidateToDb(c), { merge: true });
+    });
+    await batch.commit();
   },
   getModuleProgress: async (): Promise<CandidateModuleProgress[]> => {
-    const { data, error } = await supabase.from('candidate_module_progress').select('*');
-    if (error) {
-      console.error('Erro ao ler progresso de módulos:', error);
-      throw error;
+    try {
+      const snap = await getDocs(collection(db, 'candidate_module_progress'));
+      return snap.docs.map((d) => mapModuleToTS({ id: d.id, ...d.data() }));
+    } catch (err) {
+      console.error('Erro ao ler progresso de módulos no Firestore:', err);
+      return [];
     }
-    return data.map(mapModuleToTS);
   },
   setModuleProgress: async (data: CandidateModuleProgress[]): Promise<void> => {
-    const { error } = await supabase.from('candidate_module_progress').upsert(data.map(mapModuleToDb));
-    if (error) {
-      console.error('Erro ao salvar progresso de módulos:', error);
-      throw error;
-    }
+    const batch = writeBatch(db);
+    data.forEach((m) => {
+      batch.set(doc(db, 'candidate_module_progress', m.id), mapModuleToDb(m), { merge: true });
+    });
+    await batch.commit();
   },
   getAuditLogs: async (): Promise<AuditLog[]> => {
-    const { data, error } = await supabase.from('audit_logs').select('*').order('created_at', { ascending: false });
-    if (error) {
-      console.error('Erro ao ler logs de auditoria:', error);
-      throw error;
+    try {
+      const q = query(collection(db, 'audit_logs'), orderBy('created_at', 'desc'));
+      const snap = await getDocs(q);
+      return snap.docs.map((d) => mapLogToTS({ id: d.id, ...d.data() }));
+    } catch (err) {
+      // Fallback se o índice de ordenação ainda não tiver sido criado no Firestore
+      const snap = await getDocs(collection(db, 'audit_logs'));
+      return snap.docs
+        .map((d) => mapLogToTS({ id: d.id, ...d.data() }))
+        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
     }
-    return data.map(mapLogToTS);
   },
   setAuditLogs: async (data: AuditLog[]): Promise<void> => {
-    const { error } = await supabase.from('audit_logs').upsert(data.map(mapLogToDb));
-    if (error) {
-      console.error('Erro ao salvar logs de auditoria:', error);
-      throw error;
-    }
+    const batch = writeBatch(db);
+    data.forEach((l) => {
+      batch.set(doc(db, 'audit_logs', l.id), mapLogToDb(l), { merge: true });
+    });
+    await batch.commit();
   },
   getNotifications: async (): Promise<Notification[]> => {
-    const { data, error } = await supabase.from('notifications').select('*').order('created_at', { ascending: false });
-    if (error) {
-      console.error('Erro ao ler notificações:', error);
-      throw error;
+    try {
+      const q = query(collection(db, 'notifications'), orderBy('created_at', 'desc'));
+      const snap = await getDocs(q);
+      return snap.docs.map((d) => mapNotificationToTS({ id: d.id, ...d.data() }));
+    } catch (err) {
+      const snap = await getDocs(collection(db, 'notifications'));
+      return snap.docs
+        .map((d) => mapNotificationToTS({ id: d.id, ...d.data() }))
+        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
     }
-    return data.map(mapNotificationToTS);
   },
   setNotifications: async (data: Notification[]): Promise<void> => {
-    const { error } = await supabase.from('notifications').upsert(data.map(mapNotificationToDb));
-    if (error) {
-      console.error('Erro ao salvar notificações:', error);
-      throw error;
-    }
+    const batch = writeBatch(db);
+    data.forEach((n) => {
+      batch.set(doc(db, 'notifications', n.id), mapNotificationToDb(n), { merge: true });
+    });
+    await batch.commit();
   },
   resetDatabase: async (): Promise<void> => {
+    // 1. Limpar localStorage (sempre funciona, independe do Firestore)
+    const keysToRemove = [
+      'escola_user_session',
+      'escola_registered_users',
+      'escola_registered_schools',
+      'escola_candidates',
+      'escola_module_progress',
+    ];
+    keysToRemove.forEach(k => localStorage.removeItem(k));
+
+    // 2. Tentar limpar o Firestore (best-effort, falha silenciosamente)
     try {
-      // Deletar na ordem correta das chaves estrangeiras
-      await supabase.from('notifications').delete().neq('id', '');
-      await supabase.from('audit_logs').delete().neq('id', '');
-      await supabase.from('candidate_module_progress').delete().neq('id', '');
-      await supabase.from('candidates').delete().neq('id', '');
-      await supabase.from('users').delete().neq('id', '');
-      await supabase.from('schools').delete().neq('id', '');
+      const collectionsToClear = [
+        'notifications',
+        'audit_logs',
+        'candidate_module_progress',
+        'candidates',
+        'users',
+        'schools'
+      ];
 
-      // Seed de dados iniciais
-      const { error: errorSchools } = await supabase.from('schools').insert(INITIAL_SCHOOLS.map(mapSchoolToDb));
-      if (errorSchools) throw errorSchools;
+      for (const colName of collectionsToClear) {
+        const snap = await getDocs(collection(db, colName));
+        if (!snap.empty) {
+          const batch = writeBatch(db);
+          snap.docs.forEach((d) => batch.delete(d.ref));
+          await batch.commit();
+        }
+      }
 
-      const { error: errorUsers } = await supabase.from('users').insert(INITIAL_USERS.map(mapUserToDb));
-      if (errorUsers) throw errorUsers;
-
-      const { error: errorCandidates } = await supabase.from('candidates').insert(INITIAL_CANDIDATES.map(mapCandidateToDb));
-      if (errorCandidates) throw errorCandidates;
-
-      const { error: errorModules } = await supabase.from('candidate_module_progress').insert(INITIAL_MODULE_PROGRESS.map(mapModuleToDb));
-      if (errorModules) throw errorModules;
-
-      const { error: errorLogs } = await supabase.from('audit_logs').insert(INITIAL_LOGS.map(mapLogToDb));
-      if (errorLogs) throw errorLogs;
-
-      const { error: errorNotifications } = await supabase.from('notifications').insert(INITIAL_NOTIFICATIONS.map(mapNotificationToDb));
-      if (errorNotifications) throw errorNotifications;
-
-      console.log('Banco de dados Supabase resetado e semeado com sucesso!');
-      window.location.reload();
+      // Seed inicial no Firestore
+      if (INITIAL_USERS.length > 0 || INITIAL_SCHOOLS.length > 0) {
+        const seedBatch = writeBatch(db);
+        INITIAL_SCHOOLS.forEach((s) => seedBatch.set(doc(db, 'schools', s.id), mapSchoolToDb(s)));
+        INITIAL_USERS.forEach((u) => seedBatch.set(doc(db, 'users', u.id), mapUserToDb(u)));
+        await seedBatch.commit();
+      }
     } catch (err) {
-      console.error('Erro ao resetar o banco de dados:', err);
-      alert('Erro ao resetar o banco de dados. Verifique o console.');
+      // Firestore não disponível — não é erro crítico, localStorage já foi limpo
+      console.warn('Firestore não disponível durante reset. Apenas localStorage foi limpo:', err);
     }
+
+    console.log('Sistema resetado com sucesso!');
+    window.location.reload();
   }
 };

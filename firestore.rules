@@ -1,0 +1,59 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Auxiliar: Usuário autenticado
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // Auxiliar: Obter registro de usuário
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    // Auxiliar: É Administrador Geral
+    function isAdmin() {
+      return isSignedIn() && (getUserData().role == 'admin' || request.auth.token.email == 'admin@empresa.com');
+    }
+
+    // Coleção: users
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin() || request.auth.uid == userId;
+    }
+
+    // Coleção: schools
+    match /schools/{schoolId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    // Coleção: candidates
+    match /candidates/{candidateId} {
+      allow read: if isSignedIn();
+      allow create, update: if isSignedIn();
+      allow delete: if isAdmin();
+    }
+
+    // Coleção: candidate_module_progress
+    match /candidate_module_progress/{progressId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn();
+    }
+
+    // Coleção: audit_logs
+    match /audit_logs/{logId} {
+      allow read: if isAdmin();
+      allow create: if isSignedIn();
+      allow update, delete: if false; // Logs são imutáveis
+    }
+
+    // Coleção: notifications
+    match /notifications/{notificationId} {
+      allow read: if isSignedIn();
+      allow create, update: if isSignedIn();
+      allow delete: if isAdmin();
+    }
+  }
+}

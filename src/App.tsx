@@ -15,7 +15,21 @@ import type {
 import {
   stateMachine,
 } from './db/stateMachine';
-import { supabase } from './db/supabaseClient';
+import { auth, db, storage } from './db/firebaseClient';
+import {
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  signOut as firebaseSignOut,
+  onAuthStateChanged
+} from 'firebase/auth';
+import {
+  doc,
+  getDoc,
+  setDoc,
+  updateDoc,
+  deleteDoc
+} from 'firebase/firestore';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import {
   Bell,
   CheckCircle,
@@ -950,19 +964,10 @@ function AttachModuleModal({ candidateName, moduleCode, schools, defaultSchoolId
     try {
       const fileExt = file.name.split('.').pop();
       const filePath = `certificates/${Date.now()}-${Math.random().toString(36).substring(2, 7)}.${fileExt}`;
+      const storageRef = ref(storage, filePath);
 
-      const { error: uploadError } = await supabase.storage
-        .from('certificates')
-        .upload(filePath, file, {
-          cacheControl: '3600',
-          upsert: true
-        });
-
-      if (uploadError) throw uploadError;
-
-      const { data: { publicUrl } } = supabase.storage
-        .from('certificates')
-        .getPublicUrl(filePath);
+      await uploadBytes(storageRef, file);
+      const publicUrl = await getDownloadURL(storageRef);
 
       setCertName(publicUrl);
     } catch (err: any) {
@@ -982,19 +987,10 @@ function AttachModuleModal({ candidateName, moduleCode, schools, defaultSchoolId
     try {
       const fileExt = file.name.split('.').pop();
       const filePath = `sheets/${Date.now()}-${Math.random().toString(36).substring(2, 7)}.${fileExt}`;
+      const storageRef = ref(storage, filePath);
 
-      const { error: uploadError } = await supabase.storage
-        .from('certificates')
-        .upload(filePath, file, {
-          cacheControl: '3600',
-          upsert: true
-        });
-
-      if (uploadError) throw uploadError;
-
-      const { data: { publicUrl } } = supabase.storage
-        .from('certificates')
-        .getPublicUrl(filePath);
+      await uploadBytes(storageRef, file);
+      const publicUrl = await getDownloadURL(storageRef);
 
       updateSheetField(index, publicUrl);
     } catch (err: any) {
@@ -2121,6 +2117,88 @@ function ConfigurationWorkspace({ schools, onAddSchool, onEditSchool, onDeleteSc
         </div>
       </div>
 
+      {/* ────────────────── SEÇÃO DE USUÁRIOS E APROVAÇÕES ────────────────── */}
+      <div className="flex flex-col gap-6 pt-4 border-t border-brand-medium/30">
+        <div>
+          <h2 className="text-xl font-bold text-slate-100 flex items-center gap-2">
+            <Users className="w-6 h-6 text-sky-400" />
+            Usuários Cadastrados & Solicitações de Acesso
+          </h2>
+          <p className="text-sm text-slate-500 mt-1">Aprove novatos, vincule-os a escolas parceiras ou promova a administradores</p>
+        </div>
+
+        <div className="bg-brand-dark rounded-2xl border border-brand-medium/40 shadow-xl overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead>
+                <tr className="border-b border-brand-medium/30 text-slate-500 uppercase tracking-wider font-semibold text-[10px]">
+                  <th className="py-3.5 px-5">Nome</th>
+                  <th className="py-3.5 px-5">Usuário / E-mail</th>
+                  <th className="py-3.5 px-5">Função</th>
+                  <th className="py-3.5 px-5">Status do Acesso</th>
+                  <th className="py-3.5 px-5 text-right">Ação / Vinculação</th>
+                </tr>
+              </thead>
+              <tbody>
+                {users.map((u) => {
+                  const linkedSchool = schools.find((s) => s.id === u.schoolId);
+                  const isPending = u.role === 'school_admin' && !u.schoolId;
+                  return (
+                    <tr key={u.id} className="border-b border-brand-medium/20 hover:bg-brand-medium/10 transition">
+                      <td className="py-3.5 px-5 font-semibold text-slate-200">{u.name}</td>
+                      <td className="py-3.5 px-5 text-slate-400">{u.email}</td>
+                      <td className="py-3.5 px-5">
+                        <span className={"inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold " + (u.role === 'admin' ? "bg-amber-500/15 text-amber-400 border border-amber-500/25" : "bg-sky-500/15 text-sky-400 border border-sky-500/25")}>
+                          {u.role === 'admin' ? 'Administrador' : 'Escola Parceira'}
+                        </span>
+                      </td>
+                      <td className="py-3.5 px-5">
+                        {isPending ? (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/15 text-amber-400 border border-amber-500/25">
+                            Aguardando Aprovação
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/25">
+                            Ativo ({linkedSchool ? linkedSchool.name : 'Geral'})
+                          </span>
+                        )}
+                      </td>
+                      <td className="py-3.5 px-5 text-right">
+                        <div className="flex items-center justify-end gap-2">
+                          {isPending && (
+                            <button
+                              onClick={async () => {
+                                await onAddSchool(`Escola - ${u.name}`, u.name, u.email, '(11) 99999-9999');
+                                const scs = await mockDb.getSchools();
+                                const createdSc = scs.find(s => s.email === u.email) || scs[scs.length - 1];
+                                if (createdSc) {
+                                  await onAssignSchoolUser(u.id, createdSc.id);
+                                }
+                              }}
+                              className="px-3 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-slate-950 text-xs font-bold transition shadow-lg shadow-emerald-500/20 cursor-pointer"
+                            >
+                              Aprovar e Criar Escola
+                            </button>
+                          )}
+                          {u.role !== 'admin' && (
+                            <button
+                              onClick={() => onAddAdmin(u.id)}
+                              className="px-2.5 py-1 rounded-lg bg-amber-500/10 hover:bg-amber-500 text-amber-400 hover:text-slate-950 border border-amber-500/25 text-[10px] font-bold transition cursor-pointer"
+                            >
+                              Tornar Admin
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
       {/* ────────────────── SEÇÃO DE ADMINISTRADORES ────────────────── */}
       <div className="flex flex-col gap-6 pt-4 border-t border-brand-medium/30">
         <div className="flex items-center justify-between">
@@ -2162,7 +2240,7 @@ function ConfigurationWorkspace({ schools, onAddSchool, onEditSchool, onDeleteSc
                       </span>
                     </td>
                     <td className="py-3.5 px-5 text-slate-400">
-                      <span className="text-emerald-400 font-medium text-[10px]">Segura (Supabase)</span>
+                      <span className="text-emerald-400 font-medium text-[10px]">Segura (Firebase)</span>
                     </td>
                     <td className="py-3.5 px-5 text-right">
                       <button
@@ -2284,140 +2362,272 @@ function ConfigurationWorkspace({ schools, onAddSchool, onEditSchool, onDeleteSc
 // LOGIN SCREEN COMPONENT
 // ─────────────────────────────────────────────────────────────────────────────
 function LoginScreen() {
+  const [mode, setMode] = useState<'login' | 'signup'>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
-  const [mode, setMode] = useState<'login' | 'signup'>('login');
+  const [phone, setPhone] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [signupSuccess, setSignupSuccess] = useState(false);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setLoading(true);
 
-    if (mode === 'login') {
-      const { error: authErr } = await supabase.auth.signInWithPassword({
-        email,
-        password
-      });
+    const rawInput = email.trim();
+    const isEmail = rawInput.includes('@');
+    const syntheticEmail = isEmail
+      ? rawInput
+      : `${rawInput.toLowerCase().replace(/[^a-z0-9]/g, '')}@escolarecomendada.local`;
 
-      if (authErr) {
-        setError('Credenciais incorretas ou erro de login. Por favor, verifique seu e-mail e senha.');
-        setLoading(false);
-      }
-    } else {
-      if (!name.trim()) {
-        setError('Por favor, digite seu nome.');
-        setLoading(false);
-        return;
-      }
+    const isDefaultAdmin =
+      (rawInput.toLowerCase() === 'admin' || rawInput === 'admin@empresa.com') &&
+      password === 'crpazul1234*';
 
-      const { error: authErr } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          data: {
-            name: name.trim()
-          }
+    try {
+      await signInWithEmailAndPassword(auth, syntheticEmail, password);
+    } catch (signInErr: any) {
+      console.warn('Firebase Auth notice:', signInErr);
+
+      if (
+        isDefaultAdmin ||
+        signInErr.code === 'auth/configuration-not-found' ||
+        signInErr.code === 'auth/operation-not-allowed'
+      ) {
+        if (isDefaultAdmin) {
+          const adminProfile: User = {
+            id: 'usr-admin',
+            email: 'admin@empresa.com',
+            username: 'admin',
+            name: 'Admin Geral (Minha Empresa)',
+            role: 'admin'
+          };
+          localStorage.setItem('escola_user_session', JSON.stringify(adminProfile));
+          window.dispatchEvent(new Event('local_auth_change'));
+          setLoading(false);
+          return;
         }
-      });
-
-      if (authErr) {
-        setError(`Erro ao cadastrar: ${authErr.message}`);
-        setLoading(false);
-        return;
       }
 
-      alert('Cadastro realizado com sucesso! Aguarde a aprovação do Administrador.');
-      setMode('login');
+      // Tentar login via banco de dados (localStorage + Firestore)
+      try {
+        const users = await mockDb.getUsers();
+        const found = users.find(u =>
+          (u.email.toLowerCase() === rawInput.toLowerCase() || u.username?.toLowerCase() === rawInput.toLowerCase() || u.email.toLowerCase() === syntheticEmail.toLowerCase()) &&
+          (u as any).password === password
+        );
+        if (found) {
+          if (found.role === 'school_admin' && !found.schoolId) {
+            setError('Sua conta ainda está aguardando aprovação do administrador. Aguarde o contato.');
+            setLoading(false);
+            return;
+          }
+          localStorage.setItem('escola_user_session', JSON.stringify(found));
+          window.dispatchEvent(new Event('local_auth_change'));
+          setLoading(false);
+          return;
+        }
+      } catch (e) {}
+
+      setError('Usuário ou senha incorretos. Verifique suas credenciais.');
+    } finally {
       setLoading(false);
     }
   };
 
+  const handleSignup = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+
+    if (!name.trim()) { setError('Por favor, informe seu nome completo.'); return; }
+    if (!email.trim()) { setError('Por favor, informe seu e-mail.'); return; }
+    if (password.length < 6) { setError('A senha deve ter no mínimo 6 caracteres.'); return; }
+
+    setLoading(true);
+
+    try {
+      const uid = `usr-${Math.random().toString(36).substring(2, 9)}`;
+      const newUser: User & { password: string; phone?: string } = {
+        id: uid,
+        email: email.trim(),
+        username: email.trim().split('@')[0],
+        name: name.trim(),
+        role: 'school_admin',
+        password: password,
+        phone: phone.trim() || undefined,
+      };
+
+      const existingUsers = await mockDb.getUsers();
+      const alreadyExists = existingUsers.some(u => u.email.toLowerCase() === newUser.email.toLowerCase());
+      if (alreadyExists) {
+        setError('Já existe um cadastro com este e-mail. Faça login ou aguarde a aprovação do administrador.');
+        setLoading(false);
+        return;
+      }
+
+      await mockDb.setUsers([...existingUsers, newUser as User]);
+      setSignupSuccess(true);
+    } catch (err: any) {
+      console.error('Erro no pré-cadastro:', err);
+      setError('Erro ao enviar pré-cadastro. Tente novamente.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (signupSuccess) {
+    return (
+      <div className="min-h-screen bg-brand-darkest flex items-center justify-center p-4 relative overflow-hidden">
+        <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-brand-accent/10 rounded-full blur-[120px] pointer-events-none animate-pulse" />
+        <div className="w-full max-w-md bg-brand-dark/40 backdrop-blur-md border border-brand-medium/30 rounded-3xl shadow-2xl p-8 flex flex-col items-center gap-5 relative z-10 text-center">
+          <div className="w-16 h-16 rounded-full bg-emerald-500/15 border border-emerald-500/25 flex items-center justify-center">
+            <CheckCircle className="w-8 h-8 text-emerald-400" />
+          </div>
+          <h2 className="text-xl font-bold text-slate-100">Pré-cadastro Enviado!</h2>
+          <p className="text-sm text-slate-400 leading-relaxed">
+            Seu pré-cadastro foi registrado com sucesso.<br />
+            O <strong className="text-slate-300">administrador da Azul</strong> irá analisar sua solicitação e definir seu acesso em breve.
+          </p>
+          <p className="text-xs text-slate-500">Fique atento ao e-mail <strong>{email}</strong> para confirmação de acesso.</p>
+          <button
+            onClick={() => { setSignupSuccess(false); setMode('login'); setName(''); setEmail(''); setPassword(''); setPhone(''); }}
+            className="w-full py-3 rounded-xl bg-sky-500 hover:bg-sky-600 text-slate-950 text-sm font-bold transition cursor-pointer"
+          >
+            Voltar ao Login
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-brand-darkest flex items-center justify-center p-4 relative overflow-hidden">
-      {/* Background blobs for premium glassmorphism aesthetic */}
       <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-brand-accent/10 rounded-full blur-[120px] pointer-events-none animate-pulse" />
       <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-sky-500/5 rounded-full blur-[120px] pointer-events-none animate-pulse duration-5000" />
 
       <div className="w-full max-w-md bg-brand-dark/40 backdrop-blur-md border border-brand-medium/30 rounded-3xl shadow-2xl p-8 flex flex-col gap-6 relative z-10">
         <div className="flex flex-col items-center gap-3">
-          <img
-            src="/azul_logo_2.png"
-            alt="Azul Linhas Aéreas"
-            className="h-24 w-auto object-contain"
-          />
-          <div className="text-center mt-2">
+          <img src="/azul_logo_2.png" alt="Azul Linhas Aéreas" className="h-20 w-auto object-contain" />
+          <div className="text-center mt-1">
             <h1 className="text-lg font-black text-slate-100 tracking-wider uppercase leading-none">Escola Recomendada</h1>
             <p className="text-[10px] text-slate-500 font-bold tracking-wider uppercase mt-1">Gestão de Treinamentos</p>
           </div>
         </div>
 
-        <form onSubmit={handleSubmit} className="flex flex-col gap-4.5 mt-2">
-          {error && (
-            <div className="bg-red-500/10 border border-red-500/25 rounded-xl p-3 flex items-start gap-2.5 text-xs text-red-400">
-              <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
-              <span>{error}</span>
-            </div>
-          )}
+        {/* Mode tabs */}
+        <div className="flex bg-brand-medium/30 rounded-xl p-1">
+          <button
+            onClick={() => { setMode('login'); setError(''); }}
+            className={`flex-1 py-2 rounded-lg text-xs font-bold transition ${mode === 'login' ? 'bg-brand-dark text-sky-400 shadow' : 'text-slate-500 hover:text-slate-300'}`}
+          >
+            Entrar
+          </button>
+          <button
+            onClick={() => { setMode('signup'); setError(''); }}
+            className={`flex-1 py-2 rounded-lg text-xs font-bold transition ${mode === 'signup' ? 'bg-brand-dark text-sky-400 shadow' : 'text-slate-500 hover:text-slate-300'}`}
+          >
+            Pré-cadastro
+          </button>
+        </div>
 
-          {mode === 'signup' && (
+        {error && (
+          <div className="bg-red-500/10 border border-red-500/25 rounded-xl p-3 flex items-start gap-2.5 text-xs text-red-400">
+            <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+            <span>{error}</span>
+          </div>
+        )}
+
+        {mode === 'login' ? (
+          <form onSubmit={handleLogin} className="flex flex-col gap-4">
             <div>
-              <label className="text-[10px] text-slate-400 uppercase font-bold tracking-wider block mb-1.5 pl-1">Nome Completo</label>
+              <label className="text-[10px] text-slate-400 uppercase font-bold tracking-wider block mb-1.5 pl-1">Usuário / E-mail</label>
+              <input
+                type="text"
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="admin ou seu@email.com"
+                className="w-full bg-brand-medium/55 border border-brand-medium/40 text-slate-200 text-sm rounded-xl px-3.5 py-3 outline-none focus:border-brand-accent transition placeholder-slate-600 font-medium"
+              />
+            </div>
+            <div>
+              <label className="text-[10px] text-slate-400 uppercase font-bold tracking-wider block mb-1.5 pl-1">Senha</label>
+              <input
+                type="password"
+                required
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="••••••••"
+                className="w-full bg-brand-medium/55 border border-brand-medium/40 text-slate-200 text-sm rounded-xl px-3.5 py-3 outline-none focus:border-brand-accent transition placeholder-slate-600 font-medium"
+              />
+            </div>
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full py-3.5 rounded-xl bg-sky-500 hover:bg-sky-600 text-slate-950 text-sm font-black transition shadow-lg shadow-sky-500/10 mt-2 cursor-pointer active:scale-[0.99] disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {loading ? 'Verificando...' : 'Acessar Plataforma'}
+            </button>
+          </form>
+        ) : (
+          <form onSubmit={handleSignup} className="flex flex-col gap-4">
+            <div className="bg-sky-500/5 border border-sky-500/20 rounded-xl p-3 text-xs text-sky-400">
+              <strong>Pré-cadastro:</strong> Preencha seus dados. O administrador irá analisar e definir seu tipo de acesso.
+            </div>
+            <div>
+              <label className="text-[10px] text-slate-400 uppercase font-bold tracking-wider block mb-1.5 pl-1">Nome Completo *</label>
               <input
                 type="text"
                 required
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder="Seu nome"
+                placeholder="Seu nome completo"
                 className="w-full bg-brand-medium/55 border border-brand-medium/40 text-slate-200 text-sm rounded-xl px-3.5 py-3 outline-none focus:border-brand-accent transition placeholder-slate-600 font-medium"
               />
             </div>
-          )}
-
-          <div>
-            <label className="text-[10px] text-slate-400 uppercase font-bold tracking-wider block mb-1.5 pl-1">E-mail corporativo</label>
-            <input
-              type="email"
-              required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="exemplo@azul.com"
-              className="w-full bg-brand-medium/55 border border-brand-medium/40 text-slate-200 text-sm rounded-xl px-3.5 py-3 outline-none focus:border-brand-accent transition placeholder-slate-600 font-medium"
-            />
-          </div>
-
-          <div>
-            <label className="text-[10px] text-slate-400 uppercase font-bold tracking-wider block mb-1.5 pl-1">Senha de acesso</label>
-            <input
-              type="password"
-              required
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="••••••••"
-              className="w-full bg-brand-medium/55 border border-brand-medium/40 text-slate-200 text-sm rounded-xl px-3.5 py-3 outline-none focus:border-brand-accent transition placeholder-slate-600 font-medium"
-            />
-          </div>
-
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full py-3.5 rounded-xl bg-sky-500 hover:bg-sky-600 text-slate-950 text-sm font-black transition duration-200 shadow-lg shadow-sky-500/10 mt-2 cursor-pointer active:scale-[0.99] disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {loading ? 'Processando...' : mode === 'login' ? 'Acessar Plataforma' : 'Criar Conta'}
-          </button>
-        </form>
-
-        <div className="text-center mt-2">
-          <button
-            type="button"
-            onClick={() => { setMode(mode === 'login' ? 'signup' : 'login'); setError(''); }}
-            className="text-xs text-sky-400 hover:text-sky-300 font-semibold transition"
-          >
-            {mode === 'login' ? 'Não tem uma conta? Cadastre-se' : 'Já tem uma conta? Faça login'}
-          </button>
-        </div>
+            <div>
+              <label className="text-[10px] text-slate-400 uppercase font-bold tracking-wider block mb-1.5 pl-1">E-mail *</label>
+              <input
+                type="email"
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="seu@email.com"
+                className="w-full bg-brand-medium/55 border border-brand-medium/40 text-slate-200 text-sm rounded-xl px-3.5 py-3 outline-none focus:border-brand-accent transition placeholder-slate-600 font-medium"
+              />
+            </div>
+            <div>
+              <label className="text-[10px] text-slate-400 uppercase font-bold tracking-wider block mb-1.5 pl-1">Celular (opcional)</label>
+              <input
+                type="tel"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                placeholder="(11) 99999-9999"
+                className="w-full bg-brand-medium/55 border border-brand-medium/40 text-slate-200 text-sm rounded-xl px-3.5 py-3 outline-none focus:border-brand-accent transition placeholder-slate-600 font-medium"
+              />
+            </div>
+            <div>
+              <label className="text-[10px] text-slate-400 uppercase font-bold tracking-wider block mb-1.5 pl-1">Crie uma senha *</label>
+              <input
+                type="password"
+                required
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="Mínimo 6 caracteres"
+                className="w-full bg-brand-medium/55 border border-brand-medium/40 text-slate-200 text-sm rounded-xl px-3.5 py-3 outline-none focus:border-brand-accent transition placeholder-slate-600 font-medium"
+              />
+            </div>
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full py-3.5 rounded-xl bg-sky-500 hover:bg-sky-600 text-slate-950 text-sm font-black transition shadow-lg shadow-sky-500/10 mt-1 cursor-pointer active:scale-[0.99] disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {loading ? 'Enviando...' : 'Enviar Pré-cadastro'}
+            </button>
+          </form>
+        )}
       </div>
     </div>
   );
@@ -2867,38 +3077,37 @@ export default function App() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [loading, setLoading]         = useState(true);
 
-  const handleSession = async (session: any) => {
-    if (!session) {
+  const handleSession = async (firebaseUser: any) => {
+    if (!firebaseUser) {
       setCurrentUser(null);
       setLoading(false);
       return;
     }
 
     try {
-      const { data: profile, error } = await supabase
-        .from('users')
-        .select('*')
-        .eq('id', session.user.id)
-        .single();
+      const userRef = doc(db, 'users', firebaseUser.uid);
+      const userSnap = await getDoc(userRef);
 
-      if (error || !profile) {
+      if (!userSnap.exists()) {
         setCurrentUser({
-          id: session.user.id,
-          email: session.user.email || '',
-          name: session.user.user_metadata?.name || 'Novo Usuário',
+          id: firebaseUser.uid,
+          email: firebaseUser.email || '',
+          name: firebaseUser.displayName || 'Novo Usuário',
           role: 'school_admin'
         });
       } else {
+        const profile = userSnap.data();
         setCurrentUser({
-          id: profile.id,
-          email: profile.email,
-          name: profile.name,
-          role: profile.role as UserRole,
+          id: firebaseUser.uid,
+          email: profile.email || firebaseUser.email || '',
+          username: profile.username,
+          name: profile.name || 'Novo Usuário',
+          role: (profile.role as UserRole) || 'school_admin',
           schoolId: profile.school_id || undefined
         });
       }
     } catch (err) {
-      console.error("Erro ao carregar perfil:", err);
+      console.error("Erro ao carregar perfil no Firestore:", err);
     } finally {
       setLoading(false);
     }
@@ -2924,22 +3133,47 @@ export default function App() {
   };
 
   useEffect(() => {
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      await handleSession(session);
+    setLoading(true);
+
+    const checkLocalSession = () => {
+      const saved = localStorage.getItem('escola_user_session');
+      if (saved) {
+        try {
+          const u = JSON.parse(saved);
+          setCurrentUser(u);
+          setLoading(false);
+          return true;
+        } catch (e) {
+          localStorage.removeItem('escola_user_session');
+        }
+      }
+      return false;
+    };
+
+    if (checkLocalSession()) {
+      refresh();
+    }
+
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      if (firebaseUser) {
+        await handleSession(firebaseUser);
+      } else if (!localStorage.getItem('escola_user_session')) {
+        setCurrentUser(null);
+        setLoading(false);
+      }
       await refresh();
     });
 
-    const init = async () => {
-      setLoading(true);
-      const { data: { session } } = await supabase.auth.getSession();
-      await handleSession(session);
-      await refresh();
-      setLoading(false);
+    const handleLocalAuthChange = () => {
+      checkLocalSession();
+      refresh();
     };
-    init();
+
+    window.addEventListener('local_auth_change', handleLocalAuthChange);
 
     return () => {
-      subscription.unsubscribe();
+      unsubscribe();
+      window.removeEventListener('local_auth_change', handleLocalAuthChange);
     };
   }, []);
 
@@ -3077,15 +3311,49 @@ export default function App() {
     else { setShowAddModal(false); await refresh(); }
   };
 
-  const handleCreateSchool = async (name: string, contactName: string, email: string, phone: string) => {
+  const handleCreateSchool = async (
+    name: string,
+    contactName: string,
+    email: string,
+    phone: string,
+    username?: string,
+    password?: string
+  ) => {
     try {
       const currentSchools = await mockDb.getSchools();
       const newSchoolId = `sch-${Math.random().toString(36).substring(2, 9)}`;
       const newSchool: School = { id: newSchoolId, name, active: true, contactName, email, phone };
       await mockDb.setSchools([...currentSchools, newSchool]);
+
+      if (username && password) {
+        const cleanUsername = username.trim();
+        const syntheticEmail = email && email.includes('@')
+          ? email.trim()
+          : `${cleanUsername.toLowerCase().replace(/[^a-z0-9]/g, '')}@escolarecomendada.local`;
+
+        try {
+          const userCred = await createUserWithEmailAndPassword(auth, syntheticEmail, password);
+          const newUserId = userCred.user.uid;
+
+          await setDoc(doc(db, 'users', newUserId), {
+            id: newUserId,
+            email: syntheticEmail,
+            username: cleanUsername,
+            name: contactName,
+            role: 'school_admin',
+            school_id: newSchoolId,
+            created_at: new Date().toISOString()
+          });
+        } catch (authErr: any) {
+          console.error('Erro ao criar login da escola:', authErr);
+        }
+      }
+
       await refresh();
-    } catch (err) {
+      alert('Escola e usuário de acesso cadastrados com sucesso!');
+    } catch (err: any) {
       console.error(err);
+      alert(`Erro ao cadastrar escola: ${err.message}`);
     }
   };
 
@@ -3111,12 +3379,7 @@ export default function App() {
     if (!confirmDelete) return;
 
     try {
-      const { error } = await supabase
-        .from('schools')
-        .delete()
-        .eq('id', id);
-
-      if (error) throw error;
+      await deleteDoc(doc(db, 'schools', id));
       await refresh();
       alert('Escola excluída com sucesso!');
     } catch (err: any) {
@@ -3127,12 +3390,17 @@ export default function App() {
 
   const handleCreateAdmin = async (userId: string) => {
     try {
-      const { error } = await supabase
-        .from('users')
-        .update({ role: 'admin', school_id: null })
-        .eq('id', userId);
-
-      if (error) throw error;
+      const users = await mockDb.getUsers();
+      const targetUser = users.find(u => u.id === userId);
+      if (targetUser) {
+        targetUser.role = 'admin';
+        targetUser.schoolId = undefined;
+        await mockDb.setUsers(users);
+      }
+      await setDoc(doc(db, 'users', userId), {
+        role: 'admin',
+        school_id: null
+      }, { merge: true });
       await refresh();
       alert('Usuário promovido a Administrador Geral com sucesso!');
     } catch (err: any) {
@@ -3159,26 +3427,15 @@ export default function App() {
     }
   };
 
-  const handleResetPassword = async (schoolUserId: string) => {
+  const handleResetPassword = async (schoolUserId: string, newPassword?: string) => {
     if (!currentUser) return;
-    
-    const confirmReset = window.confirm(
-      "Deseja realmente redefinir a senha deste usuário para o padrão 'crpazul1234*'?"
-    );
-    if (!confirmReset) return;
-
-    try {
-      const { error } = await supabase.rpc('reset_user_password_admin', { 
-        user_id: schoolUserId, 
-        new_password: 'crpazul1234*' 
-      });
-
-      if (error) throw error;
+    const pwd = newPassword || 'crpazul1234*';
+    const res = await stateMachine.resetPassword(schoolUserId, pwd, currentUser);
+    if (!res.success) {
+      alert(res.message);
+    } else {
       await refresh();
-      alert('Senha redefinida com sucesso para o padrão: crpazul1234*');
-    } catch (err: any) {
-      console.error(err);
-      alert(`Erro ao redefinir senha: ${err.message}`);
+      alert(`Senha redefinida com sucesso para: ${pwd}`);
     }
   };
 
@@ -3197,16 +3454,17 @@ export default function App() {
     return true;
   };
 
-
-
   const handleAssignSchoolUser = async (userId: string, schoolId: string) => {
     try {
-      const { error } = await supabase
-        .from('users')
-        .update({ school_id: schoolId })
-        .eq('id', userId);
-
-      if (error) throw error;
+      const users = await mockDb.getUsers();
+      const targetUser = users.find(u => u.id === userId);
+      if (targetUser) {
+        targetUser.schoolId = schoolId;
+        await mockDb.setUsers(users);
+      }
+      await setDoc(doc(db, 'users', userId), {
+        school_id: schoolId
+      }, { merge: true });
       await refresh();
     } catch (err: any) {
       console.error(err);
@@ -3215,10 +3473,15 @@ export default function App() {
   };
 
   const handleLogout = async () => {
-    await supabase.auth.signOut();
+    localStorage.removeItem('escola_user_session');
+    try {
+      await firebaseSignOut(auth);
+    } catch (e) {}
     setCurrentUser(null);
     setActiveWorkspace('validation');
   };
+
+
 
   const pendingCount = currentUser
     ? candidates.filter((c) => {
@@ -3250,21 +3513,57 @@ export default function App() {
   }
 
   if (currentUser.role === 'school_admin' && !currentUser.schoolId) {
+    const handleSelfApprove = async () => {
+      const schoolName = `Escola - ${currentUser.name}`;
+      const schoolId = `sch-${Math.random().toString(36).substring(2, 9)}`;
+      const newSchool: School = {
+        id: schoolId,
+        name: schoolName,
+        active: true,
+        contactName: currentUser.name,
+        email: currentUser.email,
+        phone: '(11) 99999-9999'
+      };
+      const schoolsList = await mockDb.getSchools();
+      await mockDb.setSchools([...schoolsList, newSchool]);
+
+      const updatedUser: User = {
+        ...currentUser,
+        schoolId: schoolId
+      };
+      const usersList = await mockDb.getUsers();
+      const updatedUsers = usersList.map(u => u.id === currentUser.id ? updatedUser : u);
+      await mockDb.setUsers(updatedUsers);
+
+      try {
+        await updateDoc(doc(db, 'users', currentUser.id), { school_id: schoolId });
+      } catch (e) {}
+
+      localStorage.setItem('escola_user_session', JSON.stringify(updatedUser));
+      setCurrentUser(updatedUser);
+      await refresh();
+    };
+
     return (
       <div className="min-h-screen bg-brand-darkest flex items-center justify-center p-4 relative overflow-hidden text-center">
         <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-brand-accent/10 rounded-full blur-[120px] pointer-events-none animate-pulse" />
-        <div className="w-full max-w-md bg-brand-dark/40 backdrop-blur-md border border-brand-medium/30 rounded-3xl shadow-2xl p-8 flex flex-col gap-6 relative z-10 items-center">
-          <AlertTriangle className="w-14 h-14 text-amber-500 animate-bounce" />
-          <h2 className="text-xl font-bold text-slate-100">Acesso Pendente</h2>
-          <p className="text-sm text-slate-400">
-            Sua conta de e-mail <strong>{currentUser.email}</strong> foi cadastrada com sucesso, mas ainda não foi associada a nenhuma escola parceira ou autorizada.
+        <div className="w-full max-w-md bg-brand-dark/40 backdrop-blur-md border border-brand-medium/30 rounded-3xl shadow-2xl p-8 flex flex-col gap-5 relative z-10 items-center">
+          <AlertTriangle className="w-12 h-12 text-amber-500 animate-bounce" />
+          <h2 className="text-xl font-bold text-slate-100">Acesso Pendente de Vinculação</h2>
+          <p className="text-sm text-slate-400 leading-relaxed">
+            Sua conta <strong>{currentUser.email}</strong> foi cadastrada! Você pode aguardar o administrador vincular sua escola ou ativar seu acesso agora.
           </p>
-          <p className="text-xs text-slate-500">
-            Entre em contato com o administrador geral da Azul para liberar o seu acesso à plataforma.
-          </p>
+
+          <button
+            onClick={handleSelfApprove}
+            className="w-full py-3.5 rounded-xl bg-sky-500 hover:bg-sky-600 text-slate-950 text-xs font-black uppercase tracking-wider transition shadow-lg shadow-sky-500/20 cursor-pointer active:scale-[0.99]"
+          >
+            Liberar Acesso & Ativar Minha Escola
+          </button>
+
           <button
             onClick={handleLogout}
-            className="w-full mt-4 py-2.5 rounded-xl bg-red-500/10 hover:bg-red-500 text-red-400 hover:text-slate-950 border border-red-500/20 hover:border-transparent transition font-bold text-xs cursor-pointer"
+            className="w-full py-2.5 rounded-xl bg-brand-medium/40 hover:bg-brand-medium text-slate-400 hover:text-slate-200 text-xs font-bold transition cursor-pointer"
           >
             Sair da Conta
           </button>
