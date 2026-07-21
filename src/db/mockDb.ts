@@ -447,49 +447,6 @@ export const mockDb = {
     await batch.commit();
   },
   resetDatabase: async (): Promise<void> => {
-    // 1. Limpar localStorage (sempre funciona, independe do Firestore)
-    const keysToRemove = [
-      'escola_user_session',
-      'escola_registered_users',
-      'escola_registered_schools',
-      'escola_candidates',
-      'escola_module_progress',
-    ];
-    keysToRemove.forEach(k => localStorage.removeItem(k));
-
-    // 2. Tentar limpar o Firestore (best-effort, falha silenciosamente)
-    try {
-      const collectionsToClear = [
-        'notifications',
-        'audit_logs',
-        'candidate_module_progress',
-        'candidates',
-        'users',
-        'schools'
-      ];
-
-      for (const colName of collectionsToClear) {
-        const snap = await getDocs(collection(db, colName));
-        if (!snap.empty) {
-          const batch = writeBatch(db);
-          snap.docs.forEach((d) => batch.delete(d.ref));
-          await batch.commit();
-        }
-      }
-
-      // Seed inicial no Firestore
-      if (INITIAL_USERS.length > 0 || INITIAL_SCHOOLS.length > 0) {
-        const seedBatch = writeBatch(db);
-        INITIAL_SCHOOLS.forEach((s) => seedBatch.set(doc(db, 'schools', s.id), mapSchoolToDb(s)));
-        INITIAL_USERS.forEach((u) => seedBatch.set(doc(db, 'users', u.id), mapUserToDb(u)));
-        await seedBatch.commit();
-      }
-    } catch (err) {
-      // Firestore não disponível — não é erro crítico, localStorage já foi limpo
-      console.warn('Firestore não disponível durante reset. Apenas localStorage foi limpo:', err);
-    }
-
-    console.log('Sistema resetado com sucesso!');
-    window.location.reload();
+    console.warn('Função de reset do banco desativada por segurança.');
   }
 };

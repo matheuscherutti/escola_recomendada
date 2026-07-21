@@ -35,7 +35,6 @@ import {
   Clock,
   Plus,
   FileText,
-  RotateCcw,
   Search,
   Check,
   Building,
@@ -3789,13 +3788,6 @@ export default function App() {
                 <Plus className="w-4 h-4" /> Novo Candidato
               </button>
             )}
-            <button
-              onClick={async () => { await mockDb.resetDatabase(); await refresh(); }}
-              title="Resetar banco de dados simulado"
-              className="p-2 rounded-xl bg-brand-dark hover:bg-red-500/10 text-slate-500 hover:text-red-400 border border-brand-medium/40 transition"
-            >
-              <RotateCcw className="w-4 h-4" />
-            </button>
           </div>
         </header>
 
