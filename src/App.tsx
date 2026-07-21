@@ -2667,14 +2667,10 @@ function PartnerSchoolsWorkspace({
 // LOGIN SCREEN COMPONENT
 // ─────────────────────────────────────────────────────────────────────────────
 function LoginScreen() {
-  const [mode, setMode] = useState<'login' | 'signup'>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [name, setName] = useState('');
-  const [phone, setPhone] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const [signupSuccess, setSignupSuccess] = useState(false);
 
   // Estados do Primeiro Acesso
   const [firstAccessUser, setFirstAccessUser] = useState<User | null>(null);
@@ -2810,46 +2806,6 @@ function LoginScreen() {
     }
   };
 
-  const handleSignup = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError('');
-
-    if (!name.trim()) { setError('Por favor, informe seu nome completo.'); return; }
-    if (!email.trim()) { setError('Por favor, informe seu e-mail.'); return; }
-    if (password.length < 6) { setError('A senha deve ter no mínimo 6 caracteres.'); return; }
-
-    setLoading(true);
-
-    try {
-      const uid = `usr-${Math.random().toString(36).substring(2, 9)}`;
-      const newUser: User & { password: string; phone?: string } = {
-        id: uid,
-        email: email.trim(),
-        username: email.trim().split('@')[0],
-        name: name.trim(),
-        role: 'school_admin',
-        password: password,
-        phone: phone.trim() || undefined,
-      };
-
-      const existingUsers = await mockDb.getUsers();
-      const alreadyExists = existingUsers.some(u => u.email.toLowerCase() === newUser.email.toLowerCase());
-      if (alreadyExists) {
-        setError('Já existe um cadastro com este e-mail. Faça login ou aguarde a aprovação do administrador.');
-        setLoading(false);
-        return;
-      }
-
-      await mockDb.setUsers([...existingUsers, newUser as User]);
-      setSignupSuccess(true);
-    } catch (err: any) {
-      console.error('Erro no pré-cadastro:', err);
-      setError('Erro ao enviar pré-cadastro. Tente novamente.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
   if (firstAccessUser) {
     return (
       <div className="min-h-screen bg-brand-darkest flex items-center justify-center p-4 relative overflow-hidden">
@@ -2913,31 +2869,6 @@ function LoginScreen() {
     );
   }
 
-  if (signupSuccess) {
-    return (
-      <div className="min-h-screen bg-brand-darkest flex items-center justify-center p-4 relative overflow-hidden">
-        <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-brand-accent/10 rounded-full blur-[120px] pointer-events-none animate-pulse" />
-        <div className="w-full max-w-md bg-brand-dark/40 backdrop-blur-md border border-brand-medium/30 rounded-3xl shadow-2xl p-8 flex flex-col items-center gap-5 relative z-10 text-center">
-          <div className="w-16 h-16 rounded-full bg-emerald-500/15 border border-emerald-500/25 flex items-center justify-center">
-            <CheckCircle className="w-8 h-8 text-emerald-400" />
-          </div>
-          <h2 className="text-xl font-bold text-slate-100">Pré-cadastro Enviado!</h2>
-          <p className="text-sm text-slate-400 leading-relaxed">
-            Seu pré-cadastro foi registrado com sucesso.<br />
-            O <strong className="text-slate-300">administrador da Azul</strong> irá analisar sua solicitação e definir seu acesso em breve.
-          </p>
-          <p className="text-xs text-slate-500">Fique atento ao e-mail <strong>{email}</strong> para confirmação de acesso.</p>
-          <button
-            onClick={() => { setSignupSuccess(false); setMode('login'); setName(''); setEmail(''); setPassword(''); setPhone(''); }}
-            className="w-full py-3 rounded-xl bg-sky-500 hover:bg-sky-600 text-slate-950 text-sm font-bold transition cursor-pointer"
-          >
-            Voltar ao Login
-          </button>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="min-h-screen bg-brand-darkest flex items-center justify-center p-4 relative overflow-hidden">
       <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-brand-accent/10 rounded-full blur-[120px] pointer-events-none animate-pulse" />
@@ -2952,22 +2883,6 @@ function LoginScreen() {
           </div>
         </div>
 
-        {/* Mode tabs */}
-        <div className="flex bg-brand-medium/30 rounded-xl p-1">
-          <button
-            onClick={() => { setMode('login'); setError(''); }}
-            className={`flex-1 py-2 rounded-lg text-xs font-bold transition ${mode === 'login' ? 'bg-brand-dark text-sky-400 shadow' : 'text-slate-500 hover:text-slate-300'}`}
-          >
-            Entrar
-          </button>
-          <button
-            onClick={() => { setMode('signup'); setError(''); }}
-            className={`flex-1 py-2 rounded-lg text-xs font-bold transition ${mode === 'signup' ? 'bg-brand-dark text-sky-400 shadow' : 'text-slate-500 hover:text-slate-300'}`}
-          >
-            Pré-cadastro
-          </button>
-        </div>
-
         {error && (
           <div className="bg-red-500/10 border border-red-500/25 rounded-xl p-3 flex items-start gap-2.5 text-xs text-red-400">
             <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
@@ -2975,95 +2890,37 @@ function LoginScreen() {
           </div>
         )}
 
-        {mode === 'login' ? (
-          <form onSubmit={handleLogin} className="flex flex-col gap-4">
-            <div>
-              <label className="text-[10px] text-slate-400 uppercase font-bold tracking-wider block mb-1.5 pl-1">Usuário / E-mail</label>
-              <input
-                type="text"
-                required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="admin ou seu@email.com"
-                className="w-full bg-brand-medium/55 border border-brand-medium/40 text-slate-200 text-sm rounded-xl px-3.5 py-3 outline-none focus:border-brand-accent transition placeholder-slate-600 font-medium"
-              />
-            </div>
-            <div>
-              <label className="text-[10px] text-slate-400 uppercase font-bold tracking-wider block mb-1.5 pl-1">Senha</label>
-              <input
-                type="password"
-                required
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••"
-                className="w-full bg-brand-medium/55 border border-brand-medium/40 text-slate-200 text-sm rounded-xl px-3.5 py-3 outline-none focus:border-brand-accent transition placeholder-slate-600 font-medium"
-              />
-            </div>
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full py-3.5 rounded-xl bg-sky-500 hover:bg-sky-600 text-slate-950 text-sm font-black transition shadow-lg shadow-sky-500/10 mt-2 cursor-pointer active:scale-[0.99] disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {loading ? 'Verificando...' : 'Acessar Plataforma'}
-            </button>
-          </form>
-        ) : (
-          <form onSubmit={handleSignup} className="flex flex-col gap-4">
-            <div className="bg-sky-500/5 border border-sky-500/20 rounded-xl p-3 text-xs text-sky-400">
-              <strong>Pré-cadastro:</strong> Preencha seus dados. O administrador irá analisar e definir seu tipo de acesso.
-            </div>
-            <div>
-              <label className="text-[10px] text-slate-400 uppercase font-bold tracking-wider block mb-1.5 pl-1">Nome Completo *</label>
-              <input
-                type="text"
-                required
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="Seu nome completo"
-                className="w-full bg-brand-medium/55 border border-brand-medium/40 text-slate-200 text-sm rounded-xl px-3.5 py-3 outline-none focus:border-brand-accent transition placeholder-slate-600 font-medium"
-              />
-            </div>
-            <div>
-              <label className="text-[10px] text-slate-400 uppercase font-bold tracking-wider block mb-1.5 pl-1">E-mail *</label>
-              <input
-                type="email"
-                required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="seu@email.com"
-                className="w-full bg-brand-medium/55 border border-brand-medium/40 text-slate-200 text-sm rounded-xl px-3.5 py-3 outline-none focus:border-brand-accent transition placeholder-slate-600 font-medium"
-              />
-            </div>
-            <div>
-              <label className="text-[10px] text-slate-400 uppercase font-bold tracking-wider block mb-1.5 pl-1">Celular (opcional)</label>
-              <input
-                type="tel"
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                placeholder="(11) 99999-9999"
-                className="w-full bg-brand-medium/55 border border-brand-medium/40 text-slate-200 text-sm rounded-xl px-3.5 py-3 outline-none focus:border-brand-accent transition placeholder-slate-600 font-medium"
-              />
-            </div>
-            <div>
-              <label className="text-[10px] text-slate-400 uppercase font-bold tracking-wider block mb-1.5 pl-1">Crie uma senha *</label>
-              <input
-                type="password"
-                required
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="Mínimo 6 caracteres"
-                className="w-full bg-brand-medium/55 border border-brand-medium/40 text-slate-200 text-sm rounded-xl px-3.5 py-3 outline-none focus:border-brand-accent transition placeholder-slate-600 font-medium"
-              />
-            </div>
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full py-3.5 rounded-xl bg-sky-500 hover:bg-sky-600 text-slate-950 text-sm font-black transition shadow-lg shadow-sky-500/10 mt-1 cursor-pointer active:scale-[0.99] disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {loading ? 'Enviando...' : 'Enviar Pré-cadastro'}
-            </button>
-          </form>
-        )}
+        <form onSubmit={handleLogin} className="flex flex-col gap-4">
+          <div>
+            <label className="text-[10px] text-slate-400 uppercase font-bold tracking-wider block mb-1.5 pl-1">Usuário / E-mail</label>
+            <input
+              type="text"
+              required
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="admin ou seu_login"
+              className="w-full bg-brand-medium/55 border border-brand-medium/40 text-slate-200 text-sm rounded-xl px-3.5 py-3 outline-none focus:border-brand-accent transition placeholder-slate-600 font-medium"
+            />
+          </div>
+          <div>
+            <label className="text-[10px] text-slate-400 uppercase font-bold tracking-wider block mb-1.5 pl-1">Senha</label>
+            <input
+              type="password"
+              required
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="••••••••"
+              className="w-full bg-brand-medium/55 border border-brand-medium/40 text-slate-200 text-sm rounded-xl px-3.5 py-3 outline-none focus:border-brand-accent transition placeholder-slate-600 font-medium"
+            />
+          </div>
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full py-3.5 rounded-xl bg-sky-500 hover:bg-sky-600 text-slate-950 text-sm font-black transition shadow-lg shadow-sky-500/10 mt-2 cursor-pointer active:scale-[0.99] disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {loading ? 'Verificando...' : 'Acessar Plataforma'}
+          </button>
+        </form>
       </div>
     </div>
   );
