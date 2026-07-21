@@ -767,5 +767,360 @@ export const stateMachine = {
       console.error('Erro no resetCandidateWorkflow:', err);
       return { success: false, message: `Erro ao reiniciar processo: ${err.message}` };
     }
+  },
+
+  // 13. Módulo de Gestão de Escolas Parceiras — Criar Escola com Usuário
+  createSchoolWithUser: async (
+    name: string,
+    email: string,
+    phone: string,
+    username: string,
+    tempPassword: string,
+    contactName: string,
+    currentUser: User
+  ): Promise<{ success: boolean; message: string }> => {
+    if (currentUser.role !== 'admin') {
+      return { success: false, message: 'Apenas administradores podem cadastrar escolas.' };
+    }
+
+    const cleanName = name.trim();
+    const cleanEmail = email.trim();
+    const cleanPhone = phone.trim();
+    const cleanUsername = username.trim();
+
+    if (!cleanName) return { success: false, message: 'Nome da escola é obrigatório.' };
+    if (!cleanEmail || !cleanEmail.includes('@')) return { success: false, message: 'E-mail válido é obrigatório.' };
+    if (!cleanPhone) return { success: false, message: 'Telefone é obrigatório.' };
+    if (!tempPassword || tempPassword.length < 6) return { success: false, message: 'Senha provisória deve ter no mínimo 6 caracteres.' };
+
+    const usernameRegex = /^[a-zA-Z0-9_]{4,30}$/;
+    if (!usernameRegex.test(cleanUsername)) {
+      return {
+        success: false,
+        message: 'O usuário deve conter entre 4 e 30 caracteres (apenas letras, números e underline _, sem espaços).'
+      };
+    }
+
+    try {
+      // Validar duplicidade de usuário no Firestore & localStorage
+      const usersSnap = await getDocs(collection(db, 'users'));
+      const existsInFirestore = usersSnap.docs.some((d) => {
+        const u = d.data();
+        return u.username && u.username.toLowerCase() === cleanUsername.toLowerCase();
+      });
+
+      let existsInLocal = false;
+      try {
+        const stored = localStorage.getItem('escola_registered_users');
+        if (stored) {
+          const parsed: User[] = JSON.parse(stored);
+          existsInLocal = parsed.some(
+            (u) => u.username && u.username.toLowerCase() === cleanUsername.toLowerCase()
+          );
+        }
+      } catch (e) {}
+
+      if (existsInFirestore || existsInLocal) {
+        return { success: false, message: 'Este usuário já está sendo utilizado por outra escola.' };
+      }
+
+      const timestamp = new Date().toISOString();
+      const schoolId = `sch-${generateId()}`;
+      const userId = `usr-${generateId()}`;
+
+      // 1. Grava Escola
+      await setDoc(doc(db, 'schools', schoolId), {
+        id: schoolId,
+        name: cleanName,
+        email: cleanEmail,
+        phone: cleanPhone,
+        contact_name: contactName || cleanName,
+        active: true,
+        created_at: timestamp,
+        updated_at: timestamp
+      });
+
+      // 2. Grava Usuário da Escola
+      await setDoc(doc(db, 'users', userId), {
+        id: userId,
+        school_id: schoolId,
+        username: cleanUsername,
+        email: cleanEmail,
+        name: cleanName,
+        role: 'school_admin',
+        password: tempPassword,
+        phone: cleanPhone,
+        primeiro_acesso: true,
+        active: true,
+        created_at: timestamp,
+        updated_at: timestamp
+      });
+
+      // 3. Grava Log de Auditoria
+      const logId = `log-${generateId()}`;
+      await setDoc(doc(db, 'audit_logs', logId), {
+        id: logId,
+        created_at: timestamp,
+        user_id: currentUser.id,
+        user_name: currentUser.name,
+        candidate_id: '-',
+        candidate_name: cleanName,
+        changed_field: 'Escola Criada',
+        old_value: '-',
+        new_value: `Escola ${cleanName} cadastrada com usuário "${cleanUsername}"`
+      });
+
+      return { success: true, message: 'Escola cadastrada com sucesso.' };
+    } catch (err: any) {
+      console.error('Erro no createSchoolWithUser:', err);
+      return { success: false, message: `Erro ao cadastrar escola: ${err.message}` };
+    }
+  },
+
+  // 14. Editar Escola
+  updateSchool: async (
+    schoolId: string,
+    name: string,
+    email: string,
+    phone: string,
+    contactName: string,
+    currentUser: User
+  ): Promise<{ success: boolean; message: string }> => {
+    if (currentUser.role !== 'admin') {
+      return { success: false, message: 'Apenas administradores podem editar escolas.' };
+    }
+
+    const cleanName = name.trim();
+    const cleanEmail = email.trim();
+    const cleanPhone = phone.trim();
+
+    if (!cleanName) return { success: false, message: 'Nome da escola é obrigatório.' };
+    if (!cleanEmail || !cleanEmail.includes('@')) return { success: false, message: 'E-mail válido é obrigatório.' };
+    if (!cleanPhone) return { success: false, message: 'Telefone é obrigatório.' };
+
+    try {
+      const timestamp = new Date().toISOString();
+      const schoolRef = doc(db, 'schools', schoolId);
+      const schoolSnap = await getDoc(schoolRef);
+
+      if (!schoolSnap.exists()) {
+        return { success: false, message: 'Escola não encontrada.' };
+      }
+
+      await updateDoc(schoolRef, {
+        name: cleanName,
+        email: cleanEmail,
+        phone: cleanPhone,
+        contact_name: contactName || cleanName,
+        updated_at: timestamp
+      });
+
+      // Atualizar também dados no documento de usuário vinculado
+      const usersSnap = await getDocs(collection(db, 'users'));
+      const linkedUserDoc = usersSnap.docs.find((d) => d.data().school_id === schoolId);
+
+      if (linkedUserDoc) {
+        await updateDoc(linkedUserDoc.ref, {
+          name: cleanName,
+          email: cleanEmail,
+          phone: cleanPhone,
+          updated_at: timestamp
+        });
+      }
+
+      // Audit Log
+      const logId = `log-${generateId()}`;
+      await setDoc(doc(db, 'audit_logs', logId), {
+        id: logId,
+        created_at: timestamp,
+        user_id: currentUser.id,
+        user_name: currentUser.name,
+        candidate_id: '-',
+        candidate_name: cleanName,
+        changed_field: 'Escola Editada',
+        old_value: 'Dados Anteriores',
+        new_value: `Dados da escola ${cleanName} atualizados por ${currentUser.name}`
+      });
+
+      return { success: true, message: 'Escola atualizada com sucesso.' };
+    } catch (err: any) {
+      console.error('Erro no updateSchool:', err);
+      return { success: false, message: `Erro ao atualizar escola: ${err.message}` };
+    }
+  },
+
+  // 15. Ativar / Inativar Escola
+  toggleSchoolStatus: async (
+    schoolId: string,
+    newStatus: boolean,
+    currentUser: User
+  ): Promise<{ success: boolean; message: string }> => {
+    if (currentUser.role !== 'admin') {
+      return { success: false, message: 'Apenas administradores podem alterar o status de escolas.' };
+    }
+
+    try {
+      const timestamp = new Date().toISOString();
+      const schoolRef = doc(db, 'schools', schoolId);
+      const schoolSnap = await getDoc(schoolRef);
+
+      if (!schoolSnap.exists()) {
+        return { success: false, message: 'Escola não encontrada.' };
+      }
+
+      const schoolName = schoolSnap.data().name;
+
+      await updateDoc(schoolRef, {
+        active: newStatus,
+        updated_at: timestamp
+      });
+
+      // Atualizar status no usuário vinculado
+      const usersSnap = await getDocs(collection(db, 'users'));
+      const linkedUserDoc = usersSnap.docs.find((d) => d.data().school_id === schoolId);
+
+      if (linkedUserDoc) {
+        await updateDoc(linkedUserDoc.ref, {
+          active: newStatus,
+          updated_at: timestamp
+        });
+      }
+
+      // Audit Log
+      const actionLabel = newStatus ? 'Escola Ativada' : 'Escola Inativada';
+      const logId = `log-${generateId()}`;
+      await setDoc(doc(db, 'audit_logs', logId), {
+        id: logId,
+        created_at: timestamp,
+        user_id: currentUser.id,
+        user_name: currentUser.name,
+        candidate_id: '-',
+        candidate_name: schoolName,
+        changed_field: actionLabel,
+        old_value: newStatus ? 'Inativa' : 'Ativa',
+        new_value: newStatus ? 'Ativa' : 'Inativa'
+      });
+
+      return {
+        success: true,
+        message: `Escola ${newStatus ? 'ativada' : 'inativada'} com sucesso.`
+      };
+    } catch (err: any) {
+      console.error('Erro no toggleSchoolStatus:', err);
+      return { success: false, message: `Erro ao alterar status da escola: ${err.message}` };
+    }
+  },
+
+  // 16. Redefinir Senha de Escola pelo Administrador
+  resetSchoolPassword: async (
+    schoolId: string,
+    newTempPassword: string,
+    currentUser: User
+  ): Promise<{ success: boolean; message: string }> => {
+    if (currentUser.role !== 'admin') {
+      return { success: false, message: 'Apenas administradores podem redefinir senhas.' };
+    }
+
+    if (!newTempPassword || newTempPassword.length < 6) {
+      return { success: false, message: 'A nova senha provisória deve ter no mínimo 6 caracteres.' };
+    }
+
+    try {
+      const timestamp = new Date().toISOString();
+      const usersSnap = await getDocs(collection(db, 'users'));
+      const linkedUserDoc = usersSnap.docs.find((d) => d.data().school_id === schoolId);
+
+      if (!linkedUserDoc) {
+        return { success: false, message: 'Usuário da escola não encontrado.' };
+      }
+
+      const userData = linkedUserDoc.data();
+
+      await updateDoc(linkedUserDoc.ref, {
+        password: newTempPassword,
+        primeiro_acesso: true,
+        updated_at: timestamp
+      });
+
+      // Audit Log
+      const logId = `log-${generateId()}`;
+      await setDoc(doc(db, 'audit_logs', logId), {
+        id: logId,
+        created_at: timestamp,
+        user_id: currentUser.id,
+        user_name: currentUser.name,
+        candidate_id: '-',
+        candidate_name: userData.name || 'Escola',
+        changed_field: 'Senha Redefinida',
+        old_value: '********',
+        new_value: `Nova senha provisória gerada por ${currentUser.name}`
+      });
+
+      return { success: true, message: 'Senha redefinida com sucesso.' };
+    } catch (err: any) {
+      console.error('Erro no resetSchoolPassword:', err);
+      return { success: false, message: `Erro ao redefinir senha: ${err.message}` };
+    }
+  },
+
+  // 17. Concluir Primeiro Acesso (Troca Obrigatória de Senha pela Escola)
+  completeFirstAccess: async (
+    userId: string,
+    tempPasswordInput: string,
+    newPassword: string,
+    confirmPassword: string
+  ): Promise<{ success: boolean; message: string }> => {
+    if (!newPassword || newPassword.length < 6) {
+      return { success: false, message: 'A nova senha deve ter no mínimo 6 caracteres.' };
+    }
+
+    if (newPassword !== confirmPassword) {
+      return { success: false, message: 'A nova senha e a confirmação não conferem.' };
+    }
+
+    if (newPassword === tempPasswordInput) {
+      return { success: false, message: 'Sua nova senha deve ser diferente da senha provisória.' };
+    }
+
+    try {
+      const timestamp = new Date().toISOString();
+      const userRef = doc(db, 'users', userId);
+      const userSnap = await getDoc(userRef);
+
+      if (!userSnap.exists()) {
+        return { success: false, message: 'Usuário não encontrado.' };
+      }
+
+      const userData = userSnap.data();
+
+      if (userData.password && userData.password !== tempPasswordInput) {
+        return { success: false, message: 'A senha provisória informada está incorreta.' };
+      }
+
+      await updateDoc(userRef, {
+        password: newPassword,
+        primeiro_acesso: false,
+        updated_at: timestamp
+      });
+
+      // Audit Log
+      const logId = `log-${generateId()}`;
+      await setDoc(doc(db, 'audit_logs', logId), {
+        id: logId,
+        created_at: timestamp,
+        user_id: userId,
+        user_name: userData.name || 'Escola',
+        candidate_id: '-',
+        candidate_name: userData.name || 'Escola',
+        changed_field: 'Primeiro Acesso Concluído',
+        old_value: 'Primeiro Acesso Pendente',
+        new_value: 'Senha definitiva cadastrada com sucesso'
+      });
+
+      return { success: true, message: 'Senha alterada com sucesso! Faça login com sua nova senha.' };
+    } catch (err: any) {
+      console.error('Erro no completeFirstAccess:', err);
+      return { success: false, message: `Erro ao concluir primeiro acesso: ${err.message}` };
+    }
   }
 };

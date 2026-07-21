@@ -25,6 +25,11 @@ export interface User {
   password?: string;
   phone?: string;
   schoolId?: string;
+  primeiroAcesso?: boolean;
+  ultimoLogin?: string;
+  active?: boolean;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface School {
@@ -35,6 +40,8 @@ export interface School {
   contactName: string;
   email: string;
   phone: string;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface Candidate {
@@ -111,7 +118,12 @@ const mapUserToTS = (row: any): User => ({
   role: row.role as UserRole,
   password: row.password || undefined,
   phone: row.phone || undefined,
-  schoolId: row.school_id || undefined
+  schoolId: row.school_id || undefined,
+  primeiroAcesso: row.primeiro_acesso !== undefined ? Boolean(row.primeiro_acesso) : undefined,
+  ultimoLogin: row.ultimo_login || undefined,
+  active: row.active !== undefined ? Boolean(row.active) : undefined,
+  createdAt: row.created_at || undefined,
+  updatedAt: row.updated_at || undefined
 });
 
 const mapUserToDb = (u: User) => ({
@@ -122,17 +134,24 @@ const mapUserToDb = (u: User) => ({
   role: u.role,
   password: (u as any).password || null,
   phone: (u as any).phone || null,
-  school_id: u.schoolId || null
+  school_id: u.schoolId || null,
+  primeiro_acesso: u.primeiroAcesso !== undefined ? u.primeiroAcesso : null,
+  ultimo_login: u.ultimoLogin || null,
+  active: u.active !== undefined ? u.active : true,
+  created_at: u.createdAt || null,
+  updated_at: u.updatedAt || null
 });
 
 const mapSchoolToTS = (row: any): School => ({
   id: row.id,
   name: row.name,
   cnpj: row.cnpj || undefined,
-  active: row.active,
-  contactName: row.contact_name,
+  active: row.active !== undefined ? Boolean(row.active) : true,
+  contactName: row.contact_name || row.contactName || '',
   email: row.email,
-  phone: row.phone
+  phone: row.phone,
+  createdAt: row.created_at || undefined,
+  updatedAt: row.updated_at || undefined
 });
 
 const mapSchoolToDb = (s: School) => ({
@@ -142,7 +161,9 @@ const mapSchoolToDb = (s: School) => ({
   active: s.active,
   contact_name: s.contactName,
   email: s.email,
-  phone: s.phone
+  phone: s.phone,
+  created_at: s.createdAt || null,
+  updated_at: s.updatedAt || null
 });
 
 const mapCandidateToTS = (row: any): Candidate => ({
