@@ -26,6 +26,7 @@ CREATE TABLE schools (
 CREATE TABLE users (
     id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
     email TEXT UNIQUE NOT NULL,
+    username TEXT UNIQUE,
     name TEXT NOT NULL,
     role TEXT NOT NULL CHECK (role IN ('admin', 'school_admin')),
     school_id TEXT REFERENCES schools(id) ON DELETE SET NULL,
@@ -94,22 +95,22 @@ CREATE TABLE notifications (
     read_at TIMESTAMP WITH TIME ZONE
 );
 
--- 8. Inserir Dados Iniciais de Escolas (Mock de Escolas Recomendadas)
-INSERT INTO schools (id, name, cnpj, active, contact_name, email, phone) VALUES
-('sch-alfa', 'Escola Recomendada Alfa', '12345678000199', true, 'Renato Silva', 'contato@escolaalfa.com.br', '11999998888'),
-('sch-beta', 'Escola Recomendada Beta', '98765432000188', true, 'Ana Souza', 'contato@escolabeta.com.br', '11988887777');
+-- 8. Inserir Dados Iniciais de Escolas (Removidos - Limpeza de dados de teste)
+-- As escolas devem ser cadastradas através do painel de administração geral.
+
 
 -- 9. Função e Trigger para Cadastro Automático do Perfil Público
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS trigger AS $$
 BEGIN
-  INSERT INTO public.users (id, email, name, role, school_id)
+  INSERT INTO public.users (id, email, username, name, role, school_id)
   VALUES (
     new.id,
     new.email,
+    COALESCE(new.raw_user_meta_data->>'username', new.email),
     COALESCE(new.raw_user_meta_data->>'name', 'Usuário Novo'),
-    'school_admin', -- Padrão inicial
-    NULL -- Será associado a uma escola pelo administrador da Azul
+    COALESCE(new.raw_user_meta_data->>'role', 'school_admin'),
+    (new.raw_user_meta_data->>'school_id')::text
   );
   RETURN new;
 END;
@@ -201,7 +202,8 @@ BEGIN
   END IF;
 
   UPDATE auth.users 
-  SET encrypted_password = crypt(new_password, gen_salt('bf'))
+  SET encrypted_password = crypt(new_password, gen_salt('bf')),
+      email_confirmed_at = COALESCE(email_confirmed_at, timezone('utc'::text, now()))
   WHERE id = user_id;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;

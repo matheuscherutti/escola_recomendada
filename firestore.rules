@@ -19,42 +19,33 @@ service cloud.firestore {
 
     // Coleção: users
     match /users/{userId} {
-      allow read: if true;
-      allow create, update: if true;
-      allow delete: if isAdmin();
+      allow read, create, update, delete: if true;
     }
 
     // Coleção: schools
     match /schools/{schoolId} {
-      allow read: if true;
-      allow create, update: if true;
-      allow delete: if isAdmin();
+      allow read, create, update, delete: if true;
     }
 
     // Coleção: candidates
     match /candidates/{candidateId} {
-      allow read: if true;
-      allow create, update: if true;
-      allow delete: if isAdmin();
+      allow read, create, update, delete: if true;
     }
 
     // Coleção: candidate_module_progress
     match /candidate_module_progress/{progressId} {
-      allow read: if true;
-      allow write: if true;
+      allow read, write: if true;
     }
 
     // Coleção: audit_logs
     match /audit_logs/{logId} {
-      allow read, create: if true;
-      allow update, delete: if false; // Logs são imutáveis
+      allow read, create, delete: if true;
+      allow update: if false; // Logs são imutáveis
     }
 
     // Coleção: notifications
     match /notifications/{notificationId} {
-      allow read: if true;
-      allow create, update: if true;
-      allow delete: if isAdmin();
+      allow read, create, update, delete: if true;
     }
   }
 }

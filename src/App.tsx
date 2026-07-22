@@ -56,6 +56,7 @@ import {
   Key,
   Edit2,
   Download,
+  Trash2,
 } from 'lucide-react';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -76,8 +77,19 @@ const moduleIcon = (code: ModuleCode) => {
   return <Plane className="w-4 h-4" />;
 };
 
-const fmt = (iso?: string) =>
-  iso ? new Date(iso).toLocaleDateString('pt-BR') : '—';
+const fmt = (iso?: string) => {
+  if (!iso) return '—';
+  if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) {
+    const [year, month, day] = iso.split('-');
+    return `${day}/${month}/${year}`;
+  }
+  if (iso.includes('T00:00:00')) {
+    const datePart = iso.split('T')[0];
+    const [year, month, day] = datePart.split('-');
+    return `${day}/${month}/${year}`;
+  }
+  return new Date(iso).toLocaleDateString('pt-BR');
+};
 
 const fmtTime = (iso: string) =>
   new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
@@ -357,9 +369,10 @@ interface ValidationWorkspaceProps {
   onApprove: (id: string) => void;
   onReject: (id: string) => void;
   schools: School[];
+  onEditCandidate: (c: Candidate) => void;
 }
 
-function ValidationWorkspace({ candidates, currentUser, onApprove, onReject, schools }: ValidationWorkspaceProps) {
+function ValidationWorkspace({ candidates, currentUser, onApprove, onReject, schools, onEditCandidate }: ValidationWorkspaceProps) {
   const [filter, setFilter] = useState<ValidationFilter>('pending');
   const [search, setSearch] = useState('');
   const [confirmReject, setConfirmReject] = useState<string | null>(null);
@@ -377,6 +390,8 @@ function ValidationWorkspace({ candidates, currentUser, onApprove, onReject, sch
       c.anac.toLowerCase().includes(search.toLowerCase());
     return matchesRole && matchesFilter && matchesSearch;
   });
+
+  const sorted = [...filtered].sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
 
   const counts = {
     pending:  candidates.filter((c) => c.status === 'pending_validation').length,
@@ -445,13 +460,11 @@ function ValidationWorkspace({ candidates, currentUser, onApprove, onReject, sch
                 {currentUser.role === 'admin' && <th className="py-3 px-5">Escola</th>}
                 <th className="py-3 px-5">Enviado em</th>
                 <th className="py-3 px-5">Status</th>
-                {currentUser.role === 'admin' && filter === 'pending' && (
-                  <th className="py-3 px-5 text-right">Decisão</th>
-                )}
+                <th className="py-3 px-5 text-right">Ações</th>
               </tr>
             </thead>
             <tbody>
-              {filtered.length === 0 ? (
+              {sorted.length === 0 ? (
                 <tr>
                   <td colSpan={8} className="py-16 text-center">
                     <div className="flex flex-col items-center gap-3 text-slate-600">
@@ -464,7 +477,7 @@ function ValidationWorkspace({ candidates, currentUser, onApprove, onReject, sch
                   </td>
                 </tr>
               ) : (
-                filtered.map((c) => {
+                sorted.map((c) => {
                   const schoolName = schools.find((s) => s.id === c.schoolId)?.name ?? '—';
                   return (
                     <tr key={c.id} className="border-b border-brand-medium/20 hover:bg-brand-medium/10 transition">
@@ -481,24 +494,33 @@ function ValidationWorkspace({ candidates, currentUser, onApprove, onReject, sch
                       )}
                       <td className="py-3.5 px-5 text-slate-500">{fmt(c.createdAt)}</td>
                       <td className="py-3.5 px-5"><StatusBadge status={c.status} /></td>
-                      {currentUser.role === 'admin' && filter === 'pending' && (
-                        <td className="py-3.5 px-5">
-                          <div className="flex items-center justify-end gap-2">
-                            <button
-                              onClick={() => setConfirmApprove(c.id)}
-                              className="flex items-center gap-1.5 bg-emerald-500/10 hover:bg-emerald-500 text-emerald-400 hover:text-slate-950 border border-emerald-500/25 px-3 py-1.5 rounded-lg font-bold transition-all duration-150 text-[11px]"
-                            >
-                              <Check className="w-3.5 h-3.5" /> Aprovar
-                            </button>
-                            <button
-                              onClick={() => setConfirmReject(c.id)}
-                              className="flex items-center gap-1.5 bg-red-500/10 hover:bg-red-500 text-red-400 hover:text-slate-950 border border-red-500/25 px-3 py-1.5 rounded-lg font-bold transition-all duration-150 text-[11px]"
-                            >
-                              <XCircle className="w-3.5 h-3.5" /> Recusar
-                            </button>
-                          </div>
-                        </td>
-                      )}
+                      <td className="py-3.5 px-5">
+                        <div className="flex items-center justify-end gap-2">
+                          <button
+                            onClick={() => onEditCandidate(c)}
+                            className="flex items-center gap-1 bg-brand-medium/55 hover:bg-brand-medium border border-brand-medium/60 text-slate-300 hover:text-sky-400 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold transition cursor-pointer"
+                            title="Editar Cadastro do Aluno"
+                          >
+                            <Edit2 className="w-3.5 h-3.5" /> Editar
+                          </button>
+                          {currentUser.role === 'admin' && filter === 'pending' && (
+                            <>
+                              <button
+                                onClick={() => setConfirmApprove(c.id)}
+                                className="flex items-center gap-1.5 bg-emerald-500/10 hover:bg-emerald-500 text-emerald-400 hover:text-slate-950 border border-emerald-500/25 px-3 py-1.5 rounded-lg font-bold transition-all duration-150 text-[11px] cursor-pointer"
+                              >
+                                <Check className="w-3.5 h-3.5" /> Aprovar
+                              </button>
+                              <button
+                                onClick={() => setConfirmReject(c.id)}
+                                className="flex items-center gap-1.5 bg-red-500/10 hover:bg-red-500 text-red-400 hover:text-slate-950 border border-red-500/25 px-3 py-1.5 rounded-lg font-bold transition-all duration-150 text-[11px] cursor-pointer"
+                              >
+                                <XCircle className="w-3.5 h-3.5" /> Recusar
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </td>
                     </tr>
                   );
                 })
@@ -612,7 +634,7 @@ function ModuleBlock({ code, prog, isSchoolOwner, isAdmin, onAttach, onOpenValid
 
   const fmtDate = (iso?: string) => {
     if (!iso) return '';
-    return new Date(iso).toLocaleDateString('pt-BR');
+    return fmt(iso);
   };
 
   return (
@@ -719,7 +741,7 @@ function CertificateDrawer({ prog, candidateName, onValidate, onReject, onClose,
             <div className="flex justify-between">
               <span className="text-xs text-slate-500 uppercase font-semibold tracking-wide">Data de Conclusão</span>
               <span className="text-xs font-semibold text-slate-300">
-                {prog.completionDate ? new Date(prog.completionDate).toLocaleDateString('pt-BR') : '—'}
+                {prog.completionDate ? fmt(prog.completionDate) : '—'}
               </span>
             </div>
             <div className="flex justify-between">
@@ -1365,9 +1387,10 @@ interface TrainingWorkspaceProps {
   onCompleteModule: (candidateId: string, code: ModuleCode, date: string, cert: string, classSheets: string[], schoolId: string) => void;
   onAdminEditModule: (candidateId: string, code: ModuleCode, status: ModuleStatus, date?: string, cert?: string, classSheets?: string[], schoolId?: string) => void;
   onRejectModule: (candidateId: string, code: ModuleCode, reason: string) => void;
+  onEditCandidate: (c: Candidate) => void;
 }
 
-function TrainingWorkspace({ candidates, modules, schools, currentUser, onCompleteModule, onAdminEditModule, onRejectModule }: TrainingWorkspaceProps) {
+function TrainingWorkspace({ candidates, modules, schools, currentUser, onCompleteModule, onAdminEditModule, onRejectModule, onEditCandidate }: TrainingWorkspaceProps) {
   const [search, setSearch] = useState('');
   const [drawerProg, setDrawerProg] = useState<{ prog: CandidateModuleProgress; candidateName: string } | null>(null);
   const [attachModal, setAttachModal] = useState<{ candidateId: string; code: ModuleCode; candidateName: string; schoolId: string } | null>(null);
@@ -1403,6 +1426,13 @@ function TrainingWorkspace({ candidates, modules, schools, currentUser, onComple
           <div>
             <div className="flex items-center gap-2 mb-0.5">
               <h3 className="font-bold text-slate-200 text-base">{c.name}</h3>
+              <button
+                onClick={() => onEditCandidate(c)}
+                className="p-1 rounded bg-brand-medium/55 hover:bg-brand-medium text-slate-400 hover:text-sky-400 transition cursor-pointer"
+                title="Editar Cadastro"
+              >
+                <Edit2 className="w-3 h-3" />
+              </button>
               {c.status === 'completed' && (
                 <span className="bg-emerald-500/15 text-emerald-400 text-[9px] font-bold px-2 py-0.5 rounded-full border border-emerald-500/25">
                   CONCLUÍDO
@@ -1456,8 +1486,9 @@ function TrainingWorkspace({ candidates, modules, schools, currentUser, onComple
     );
   };
 
-  const inProgressList = filtered.filter((c) => getProgress(c.id).pct < 100);
-  const completedList = filtered.filter((c) => getProgress(c.id).pct === 100);
+  const sortedFiltered = [...filtered].sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
+  const inProgressList = sortedFiltered.filter((c) => getProgress(c.id).pct < 100);
+  const completedList = sortedFiltered.filter((c) => getProgress(c.id).pct === 100);
 
   return (
     <div className="animate-fade-in flex flex-col gap-6">
@@ -1580,9 +1611,10 @@ interface KanbanCardProps {
   onUpdateGupy: (id: string, gupyStatus: GupyStatus) => void;
   schools: School[];
   onResetCandidate?: (id: string) => void;
+  onEditCandidate?: (c: Candidate) => void;
 }
 
-function KanbanCard({ candidate: c, modules, currentUser, onMove, onUpdateGupy, schools, onResetCandidate }: KanbanCardProps) {
+function KanbanCard({ candidate: c, modules, currentUser, onMove, onUpdateGupy, schools, onResetCandidate, onEditCandidate }: KanbanCardProps) {
   const schoolName = schools.find((s) => s.id === c.schoolId)?.name ?? '—';
   const lastMod = modules.filter((m) => m.candidateId === c.id && m.status === 'completed')
     .sort((a, b) => new Date(b.uploadedAt ?? '').getTime() - new Date(a.uploadedAt ?? '').getTime())[0];
@@ -1636,8 +1668,21 @@ function KanbanCard({ candidate: c, modules, currentUser, onMove, onUpdateGupy, 
   return (
     <div className="bg-brand-dark rounded-xl border border-brand-medium/40 p-4 flex flex-col gap-3 hover:border-brand-accent hover:shadow-lg hover:shadow-black/30 transition-all duration-200 group">
       <div>
-        <p className="font-semibold text-slate-200 text-sm">{c.name}</p>
-        <p className="text-[11px] text-slate-500 font-mono mt-0.5">{c.re} · {c.anac}</p>
+        <div className="flex justify-between items-start gap-2">
+          <div>
+            <p className="font-semibold text-slate-200 text-sm">{c.name}</p>
+            <p className="text-[11px] text-slate-500 font-mono mt-0.5">{c.re} · {c.anac}</p>
+          </div>
+          {onEditCandidate && (
+            <button
+              onClick={() => onEditCandidate(c)}
+              className="p-1 rounded bg-brand-medium/55 hover:bg-brand-medium text-slate-400 hover:text-sky-400 transition cursor-pointer"
+              title="Editar Cadastro"
+            >
+              <Edit2 className="w-3 h-3" />
+            </button>
+          )}
+        </div>
         <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
           <span className="text-[11px] text-slate-600 flex items-center gap-1">
             <Building className="w-3 h-3" /> {schoolName}
@@ -1758,6 +1803,7 @@ interface SelectionWorkspaceProps {
   onUpdateGupy: (id: string, gupyStatus: GupyStatus) => void;
   schools: School[];
   onResetCandidate: (id: string) => void;
+  onEditCandidate: (c: Candidate) => void;
 }
 
 const KANBAN_COLUMNS: { id: SelectionStatus; label: string; sublabel: string; colorClass: string; badgeClass: string }[] = [
@@ -1767,15 +1813,30 @@ const KANBAN_COLUMNS: { id: SelectionStatus; label: string; sublabel: string; co
   { id: 'rejected', label: 'Reprovado', sublabel: 'Em quarentena (6 meses)', colorClass: 'border-rose-500/15 bg-rose-500/3', badgeClass: 'bg-rose-500/20 text-rose-400' },
 ];
 
-function SelectionWorkspace({ candidates, modules, currentUser, onMove, onUpdateGupy, schools, onResetCandidate }: SelectionWorkspaceProps) {
+function SelectionWorkspace({ candidates, modules, currentUser, onMove, onUpdateGupy, schools, onResetCandidate, onEditCandidate }: SelectionWorkspaceProps) {
+  const [search, setSearch] = useState('');
+  const [selectedSchoolId, setSelectedSchoolId] = useState('all');
+
   const completed = candidates.filter((c) => {
     const matchesRole = currentUser.role === 'admin' || c.schoolId === currentUser.schoolId;
     return matchesRole && c.status === 'completed';
   });
 
+  const filtered = completed.filter((c) => {
+    const matchesSearch = !search ||
+      c.name.toLowerCase().includes(search.toLowerCase()) ||
+      c.re.toLowerCase().includes(search.toLowerCase()) ||
+      c.anac.toLowerCase().includes(search.toLowerCase());
+    const matchesSchool = selectedSchoolId === 'all' || c.schoolId === selectedSchoolId;
+    return matchesSearch && matchesSchool;
+  });
+
+  // Ordenação alfabética
+  const sorted = [...filtered].sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
+
   return (
     <div className="animate-fade-in flex flex-col gap-6">
-      <div className="flex items-start justify-between">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-brand-medium/20 pb-4">
         <div>
           <h2 className="text-xl font-bold text-slate-100 flex items-center gap-2">
             <Trophy className="w-6 h-6 text-brand-accent" />
@@ -1783,21 +1844,49 @@ function SelectionWorkspace({ candidates, modules, currentUser, onMove, onUpdate
           </h2>
           <p className="text-sm text-slate-500 mt-1">
             Candidatos com 100% de treinamento concluído ·{' '}
-            <span className="text-slate-400 font-semibold">{completed.length} formados</span>
+            <span className="text-slate-400 font-semibold">{filtered.length} filtrados</span> (de {completed.length} formados)
           </p>
+        </div>
+        
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="relative">
+            <Search className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
+            <input
+              type="text"
+              placeholder="Buscar candidato..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="bg-brand-dark border border-brand-medium/40 text-slate-300 placeholder-slate-600 text-xs rounded-xl pl-9 pr-3 py-2 w-52 outline-none focus:border-brand-accent transition"
+            />
+          </div>
+          {currentUser.role === 'admin' && (
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-slate-500 font-medium">Escola:</span>
+              <select
+                value={selectedSchoolId}
+                onChange={(e) => setSelectedSchoolId(e.target.value)}
+                className="bg-brand-dark border border-brand-medium/40 text-slate-300 text-xs rounded-xl px-3 py-2 outline-none focus:border-brand-accent transition cursor-pointer"
+              >
+                <option value="all">Todas as Escolas</option>
+                {schools.map((s) => (
+                  <option key={s.id} value={s.id}>{s.name}</option>
+                ))}
+              </select>
+            </div>
+          )}
         </div>
       </div>
 
-      {completed.length === 0 ? (
+      {sorted.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-24 gap-4 text-slate-600">
           <Trophy className="w-14 h-14 opacity-20" />
-          <p className="text-base font-semibold">Nenhum candidato formado ainda</p>
-          <p className="text-sm opacity-60">Candidatos que concluírem 100% do treinamento aparecerão aqui.</p>
+          <p className="text-base font-semibold">Nenhum candidato encontrado</p>
+          <p className="text-sm opacity-60">Altere os termos de busca ou filtros selecionados.</p>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-4 gap-5">
           {KANBAN_COLUMNS.map((col) => {
-            const cards = completed.filter((c) => c.selectionStatus === col.id);
+            const cards = sorted.filter((c) => c.selectionStatus === col.id);
             return (
               <div key={col.id} className={`rounded-2xl border ${col.colorClass} p-4 flex flex-col gap-4`}>
                 {/* Column Header */}
@@ -1818,7 +1907,7 @@ function SelectionWorkspace({ candidates, modules, currentUser, onMove, onUpdate
                     </div>
                   ) : (
                     cards.map((c) => (
-                      <KanbanCard key={c.id} candidate={c} modules={modules} currentUser={currentUser} onMove={onMove} onUpdateGupy={onUpdateGupy} schools={schools} onResetCandidate={onResetCandidate} />
+                      <KanbanCard key={c.id} candidate={c} modules={modules} currentUser={currentUser} onMove={onMove} onUpdateGupy={onUpdateGupy} schools={schools} onResetCandidate={onResetCandidate} onEditCandidate={onEditCandidate} />
                     ))
                   )}
                 </div>
@@ -1881,6 +1970,115 @@ function AddCandidateModal({
             </button>
             <button type="submit" className="flex-1 py-2.5 rounded-xl bg-sky-500 hover:bg-sky-600 text-slate-950 text-sm font-bold transition shadow-lg shadow-sky-500/20">
               Enviar Candidato
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// EDIT CANDIDATE MODAL
+// ─────────────────────────────────────────────────────────────────────────────
+interface EditCandidateModalProps {
+  candidate: Candidate;
+  schools: School[];
+  currentUser: User;
+  onSubmit: (candidateId: string, re: string, name: string, anac: string, schoolId: string) => Promise<{ success: boolean; message: string }>;
+  onClose: () => void;
+}
+
+function EditCandidateModal({ candidate, schools, currentUser, onSubmit, onClose }: EditCandidateModalProps) {
+  const [name, setName] = useState(candidate.name);
+  const [re, setRe] = useState(candidate.re);
+  const [anac, setAnac] = useState(candidate.anac);
+  const [selectedSchoolId, setSelectedSchoolId] = useState(candidate.schoolId);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    if (!name.trim() || !re.trim() || !anac.trim() || !selectedSchoolId) {
+      setError('Por favor, preencha todos os campos obrigatórios.');
+      return;
+    }
+    setLoading(true);
+    try {
+      const res = await onSubmit(candidate.id, re.trim(), name.trim(), anac.trim(), selectedSchoolId);
+      if (res.success) {
+        onClose();
+      } else {
+        setError(res.message);
+      }
+    } catch (err: any) {
+      setError(err.message || 'Erro ao atualizar dados do candidato.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+      <div className="bg-brand-dark border border-brand-medium/40 rounded-2xl w-full max-w-md shadow-2xl">
+        <div className="px-6 py-5 border-b border-brand-medium/30 flex items-center justify-between">
+          <div>
+            <h3 className="font-bold text-slate-100 font-sans">Editar Dados do Aluno</h3>
+            <p className="text-xs text-slate-500 mt-0.5 font-sans">Atualize as informações cadastrais do aluno</p>
+          </div>
+          <button onClick={onClose} className="p-2 rounded-xl bg-brand-medium hover:bg-brand-medium/80 text-slate-400 transition cursor-pointer">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+        {error && (
+          <div className="mx-6 mt-4 p-3 bg-red-500/10 border border-red-500/25 rounded-xl flex items-start gap-2 text-xs text-red-400 font-sans">
+            <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+            <span>{error}</span>
+          </div>
+        )}
+        <form onSubmit={handleSubmit} className="px-6 py-5 flex flex-col gap-4">
+          <div>
+            <label className="text-[11px] text-slate-400 uppercase font-semibold tracking-wide block mb-1.5 font-sans">Nome Completo</label>
+            <input required type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="Nome do candidato"
+              className="w-full bg-brand-medium border border-brand-medium/40 text-slate-200 text-sm rounded-xl px-3 py-2.5 outline-none focus:border-brand-accent transition placeholder-slate-600 font-sans" />
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="text-[11px] text-slate-400 uppercase font-semibold tracking-wide block mb-1.5 font-sans">RE</label>
+              <input required type="text" value={re} onChange={(e) => setRe(e.target.value)} placeholder="Ex: RE-4512"
+                className="w-full bg-brand-medium border border-brand-medium/40 text-slate-200 text-sm rounded-xl px-3 py-2.5 outline-none focus:border-brand-accent transition placeholder-slate-600 font-sans" />
+            </div>
+            <div>
+              <label className="text-[11px] text-slate-400 uppercase font-semibold tracking-wide block mb-1.5 font-sans">ANAC</label>
+              <input required type="text" value={anac} onChange={(e) => setAnac(e.target.value)} placeholder="Ex: ANAC-12345"
+                className="w-full bg-brand-medium border border-brand-medium/40 text-slate-200 text-sm rounded-xl px-3 py-2.5 outline-none focus:border-brand-accent transition placeholder-slate-600 font-sans" />
+            </div>
+          </div>
+          <div>
+            <label className="text-[11px] text-slate-400 uppercase font-semibold tracking-wide block mb-1.5 font-sans">Escola Parceira Vinculada</label>
+            {currentUser.role === 'admin' ? (
+              <select
+                value={selectedSchoolId}
+                onChange={(e) => setSelectedSchoolId(e.target.value)}
+                className="w-full bg-brand-medium border border-brand-medium/40 text-slate-200 text-sm rounded-xl px-3 py-2.5 outline-none focus:border-brand-accent transition cursor-pointer font-sans"
+              >
+                {schools.map((s) => (
+                  <option key={s.id} value={s.id}>{s.name}</option>
+                ))}
+              </select>
+            ) : (
+              <div className="w-full bg-brand-medium/40 border border-brand-medium/20 text-slate-400 text-sm rounded-xl px-3 py-2.5 outline-none font-sans">
+                {schools.find(s => s.id === selectedSchoolId)?.name || 'Escola Vinculada'}
+              </div>
+            )}
+          </div>
+          <div className="flex gap-3 pt-2">
+            <button type="button" onClick={onClose} className="flex-1 py-2.5 rounded-xl bg-brand-medium hover:bg-brand-medium/80 text-slate-300 text-sm font-semibold transition cursor-pointer font-sans">
+              Cancelar
+            </button>
+            <button type="submit" disabled={loading} className="flex-1 py-2.5 rounded-xl bg-sky-500 hover:bg-sky-600 text-slate-950 text-sm font-bold transition shadow-lg shadow-sky-500/20 disabled:opacity-50 cursor-pointer font-sans">
+              {loading ? 'Salvando...' : 'Salvar Alterações'}
             </button>
           </div>
         </form>
@@ -1996,6 +2194,7 @@ function PartnerSchoolsWorkspace({
 
   const [editingSchool, setEditingSchool] = useState<School | null>(null);
   const [resettingSchool, setResettingSchool] = useState<School | null>(null);
+  const [schoolToDelete, setSchoolToDelete] = useState<School | null>(null);
 
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
@@ -2135,6 +2334,18 @@ function PartnerSchoolsWorkspace({
     } else {
       setFeedback({ type: 'error', message: res.message });
     }
+  };
+
+  const handleDeleteSchoolConfirm = async () => {
+    if (!schoolToDelete) return;
+    const res = await stateMachine.deleteSchool(schoolToDelete.id, currentUser);
+    if (res.success) {
+      await onRefresh();
+      setFeedback({ type: 'success', message: res.message });
+    } else {
+      setFeedback({ type: 'error', message: res.message });
+    }
+    setSchoolToDelete(null);
   };
 
   const admins = users.filter((u) => u.role === 'admin');
@@ -2301,6 +2512,15 @@ function PartnerSchoolsWorkspace({
                             >
                               {school.active ? 'Inativar' : 'Ativar'}
                             </button>
+                            {currentUser.role === 'admin' && (
+                              <button
+                                onClick={() => setSchoolToDelete(school)}
+                                className="px-2.5 py-1.5 rounded-lg bg-red-500/10 hover:bg-red-500 text-red-400 hover:text-slate-950 border border-red-500/25 text-[11px] font-bold transition cursor-pointer flex items-center gap-1"
+                                title="Excluir Escola permanentemente"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" /> Excluir
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -2657,6 +2877,38 @@ function PartnerSchoolsWorkspace({
 
       {showAddAdminModal && (
         <AddAdminModal users={users} onSubmit={onAddAdmin} onClose={() => setShowAddAdminModal(false)} />
+      )}
+
+      {schoolToDelete && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-brand-dark border border-red-500/20 rounded-2xl p-6 max-w-sm w-full shadow-2xl animate-fade-in">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="p-2 bg-red-500/10 rounded-xl">
+                <AlertTriangle className="w-5 h-5 text-red-400" />
+              </div>
+              <h3 className="font-bold text-slate-100 font-sans">Excluir Escola</h3>
+            </div>
+            <p className="text-xs text-slate-400 leading-relaxed mb-6 font-sans">
+              <strong>Atenção:</strong> Esta ação é irreversível e irá excluir permanentemente o cadastro da escola <strong>{schoolToDelete.name}</strong> e todos os usuários de acesso vinculados a ela. Os alunos cadastrados por esta escola não serão apagados, mas ficarão sem escola associada.
+            </p>
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={() => setSchoolToDelete(null)}
+                className="flex-1 py-2 rounded-lg bg-brand-medium hover:bg-brand-medium/80 text-slate-300 text-xs font-semibold transition cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleDeleteSchoolConfirm}
+                className="flex-1 py-2 rounded-lg bg-red-500 hover:bg-red-600 text-white text-xs font-bold transition cursor-pointer"
+              >
+                Confirmar Exclusão
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
@@ -3104,9 +3356,13 @@ function DashboardWorkspace({ candidates, modules, schools }: DashboardWorkspace
 
   // School ranking (only if 'all' is selected)
   const schoolRanking = schools.map(s => {
-    const count = candidates.filter(c => c.schoolId === s.id && c.status === 'completed').length;
+    const completedModulesCount = modules.filter(m => {
+      if (m.status !== 'completed') return false;
+      const cand = candidates.find(c => c.id === m.candidateId);
+      return cand && cand.schoolId === s.id;
+    }).length;
     const totalSchool = candidates.filter(c => c.schoolId === s.id).length;
-    return { name: s.name, completedCount: count, total: totalSchool };
+    return { name: s.name, completedCount: completedModulesCount, total: totalSchool };
   }).sort((a, b) => b.completedCount - a.completedCount);
 
   return (
@@ -3263,7 +3519,7 @@ function DashboardWorkspace({ candidates, modules, schools }: DashboardWorkspace
           <div className="bg-brand-dark border border-brand-medium/40 rounded-2xl p-5 md:col-span-2 flex flex-col gap-4">
             <div>
               <h3 className="font-bold text-slate-200 text-sm">Ranking de Escolas</h3>
-              <p className="text-xs text-slate-500 mt-1">Quantidade de pilotos formados (treinamento concluído)</p>
+              <p className="text-xs text-slate-500 mt-1">Quantidade de módulos concluídos (Teórico / Simulador / Voo)</p>
             </div>
             <div className="flex flex-col gap-3 max-h-60 overflow-y-auto mt-2 pr-1">
               {schoolRanking.map((sr, idx) => (
@@ -3279,7 +3535,7 @@ function DashboardWorkspace({ candidates, modules, schools }: DashboardWorkspace
                   </div>
                   <div className="text-right shrink-0">
                     <span className="text-sm font-extrabold text-sky-400">{sr.completedCount}</span>
-                    <span className="text-[10px] text-slate-600 font-medium ml-1">concluídos</span>
+                    <span className="text-[10px] text-slate-600 font-medium ml-1">módulos</span>
                   </div>
                 </div>
               ))}
@@ -3367,6 +3623,7 @@ export default function App() {
   const [toasts, setToasts]           = useState<Notification[]>([]);
   const [activeWorkspace, setActiveWorkspace] = useState<WorkspaceId>('validation');
   const [showAddModal, setShowAddModal] = useState(false);
+  const [editingCandidate, setEditingCandidate] = useState<Candidate | null>(null);
   const [loading, setLoading]         = useState(true);
 
   const handleSession = async (firebaseUser: any) => {
@@ -3603,6 +3860,15 @@ export default function App() {
     else { setShowAddModal(false); await refresh(); }
   };
 
+  const handleUpdateCandidate = async (candidateId: string, re: string, name: string, anac: string, schoolId: string) => {
+    if (!currentUser) return { success: false, message: 'Usuário não autenticado.' };
+    const res = await stateMachine.updateCandidate(candidateId, re, name, anac, schoolId, currentUser);
+    if (res.success) {
+      await refresh();
+    }
+    return res;
+  };
+
   const handleCreateAdmin = async (userId: string) => {
     try {
       const users = await mockDb.getUsers();
@@ -3806,6 +4072,7 @@ export default function App() {
               onApprove={handleApprove}
               onReject={handleReject}
               schools={schools}
+              onEditCandidate={setEditingCandidate}
             />
           )}
           {activeWorkspace === 'training' && (
@@ -3817,6 +4084,7 @@ export default function App() {
               onCompleteModule={handleCompleteModule}
               onAdminEditModule={handleAdminEditModule}
               onRejectModule={handleRejectModule}
+              onEditCandidate={setEditingCandidate}
             />
           )}
           {activeWorkspace === 'selection' && (
@@ -3828,6 +4096,7 @@ export default function App() {
               onUpdateGupy={handleUpdateGupy}
               schools={schools}
               onResetCandidate={handleResetCandidate}
+              onEditCandidate={setEditingCandidate}
             />
           )}
           {activeWorkspace === 'config' && (
@@ -3862,6 +4131,16 @@ export default function App() {
 
       {showAddModal && (
         <AddCandidateModal onSubmit={handleCreateCandidate} onClose={() => setShowAddModal(false)} />
+      )}
+
+      {editingCandidate && (
+        <EditCandidateModal
+          candidate={editingCandidate}
+          schools={schools}
+          currentUser={currentUser}
+          onSubmit={handleUpdateCandidate}
+          onClose={() => setEditingCandidate(null)}
+        />
       )}
     </div>
   );

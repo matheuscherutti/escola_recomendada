@@ -5,6 +5,7 @@ import {
   getDocs,
   setDoc,
   updateDoc,
+  deleteDoc,
   collection,
   query,
   where,
@@ -1121,6 +1122,132 @@ export const stateMachine = {
     } catch (err: any) {
       console.error('Erro no completeFirstAccess:', err);
       return { success: false, message: `Erro ao concluir primeiro acesso: ${err.message}` };
+    }
+  },
+
+  // 18. Excluir Escola (Apenas Admin Geral)
+  deleteSchool: async (
+    schoolId: string,
+    currentUser: User
+  ): Promise<{ success: boolean; message: string }> => {
+    if (currentUser.role !== 'admin') {
+      return { success: false, message: 'Apenas administradores podem excluir escolas.' };
+    }
+
+    try {
+      const timestamp = new Date().toISOString();
+      
+      // Obter nome da escola para logs
+      const schoolRef = doc(db, 'schools', schoolId);
+      const schoolSnap = await getDoc(schoolRef);
+      if (!schoolSnap.exists()) {
+        return { success: false, message: 'Escola não encontrada.' };
+      }
+      const schoolName = schoolSnap.data().name;
+
+      // Deleta documento da escola
+      await deleteDoc(schoolRef);
+
+      // Deleta usuários de acesso vinculados à escola
+      const usersSnap = await getDocs(collection(db, 'users'));
+      const batch = writeBatch(db);
+      let userDeletedCount = 0;
+      
+      usersSnap.docs.forEach((d) => {
+        if (d.data().school_id === schoolId) {
+          batch.delete(d.ref);
+          userDeletedCount++;
+        }
+      });
+      if (userDeletedCount > 0) {
+        await batch.commit();
+      }
+
+      // Audit Log
+      const logId = `log-${generateId()}`;
+      await setDoc(doc(db, 'audit_logs', logId), {
+        id: logId,
+        created_at: timestamp,
+        user_id: currentUser.id,
+        user_name: currentUser.name,
+        candidate_id: '-',
+        candidate_name: schoolName,
+        changed_field: 'Escola Excluída',
+        old_value: `Escola: ${schoolName}`,
+        new_value: `Cadastro e ${userDeletedCount} usuário(s) vinculado(s) excluído(s) permanentemente`
+      });
+
+      return { success: true, message: 'Escola e usuários vinculados excluídos com sucesso!' };
+    } catch (err: any) {
+      console.error('Erro ao excluir escola:', err);
+      return { success: false, message: err.message || 'Erro ao excluir escola.' };
+    }
+  },
+
+  // 19. Atualizar Cadastro de Candidato
+  updateCandidate: async (
+    candidateId: string,
+    re: string,
+    name: string,
+    anac: string,
+    schoolId: string,
+    currentUser: User
+  ): Promise<{ success: boolean; message: string }> => {
+    try {
+      const timestamp = new Date().toISOString();
+      const candRef = doc(db, 'candidates', candidateId);
+      const candSnap = await getDoc(candRef);
+      if (!candSnap.exists()) {
+        return { success: false, message: 'Candidato não encontrado.' };
+      }
+      
+      const oldData = candSnap.data();
+
+      // Verificar RE se alterado
+      if (oldData.re !== re) {
+        const reQuery = query(collection(db, 'candidates'), where('re', '==', re));
+        const reSnap = await getDocs(reQuery);
+        if (!reSnap.empty) {
+          return { success: false, message: `Já existe um candidato cadastrado com o RE: ${re}` };
+        }
+      }
+
+      // Verificar ANAC se alterado
+      if (oldData.anac !== anac) {
+        const anacQuery = query(collection(db, 'candidates'), where('anac', '==', anac));
+        const anacSnap = await getDocs(anacQuery);
+        if (!anacSnap.empty) {
+          return { success: false, message: `Já existe um candidato cadastrado com a licença ANAC: ${anac}` };
+        }
+      }
+
+      // Atualizar documento
+      await updateDoc(candRef, {
+        re,
+        name,
+        anac,
+        school_id: schoolId,
+        updated_at: timestamp
+      });
+
+      // Audit Log
+      const logId = `log-${generateId()}`;
+      await setDoc(doc(db, 'audit_logs', logId), {
+        id: logId,
+        created_at: timestamp,
+        user_id: currentUser.id,
+        user_name: currentUser.name,
+        candidate_id: candidateId,
+        candidate_name: name,
+        changed_field: 'Edição de Cadastro',
+        old_value: `RE: ${oldData.re}, Nome: ${oldData.name}, ANAC: ${oldData.anac}`,
+        new_value: `RE: ${re}, Nome: ${name}, ANAC: ${anac}`
+      });
+
+      return { success: true, message: 'Cadastro do candidato atualizado com sucesso!' };
+    } catch (err: any) {
+      console.error(err);
+      return { success: false, message: err.message || 'Erro ao atualizar cadastro.' };
     }
   }
 };
