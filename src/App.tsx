@@ -605,10 +605,12 @@ interface ModuleBlockProps {
   isAdmin: boolean;
   onAttach: (code: ModuleCode) => void;
   onOpenValidation: (prog: CandidateModuleProgress) => void;
+  schools: School[];
 }
 
-function ModuleBlock({ code, prog, isSchoolOwner, isAdmin, onAttach, onOpenValidation }: ModuleBlockProps) {
+function ModuleBlock({ code, prog, isSchoolOwner, isAdmin, onAttach, onOpenValidation, schools }: ModuleBlockProps) {
   const status = prog?.status ?? 'not_started';
+  const schoolName = prog?.schoolId ? schools.find(s => s.id === prog.schoolId)?.name : '';
 
   const containerClass = () => {
     if (status === 'completed') return 'bg-emerald-500/8 border-emerald-500/25 text-emerald-400';
@@ -650,10 +652,21 @@ function ModuleBlock({ code, prog, isSchoolOwner, isAdmin, onAttach, onOpenValid
         <span className="text-xs font-bold">{moduleLabel(code)}</span>
       </div>
       {iconEl()}
-      <span className="text-[10px] font-medium leading-tight text-center">
-        {status === 'completed' ? `${fmtDate(prog?.completionDate)}` :
-         status === 'waiting_admin' ? (isAdmin ? 'Clique p/ validar' : 'Aguard. Admin') :
-         (isSchoolOwner || isAdmin) ? 'Anexar cert.' : 'Pendente'}
+      <span className="text-[10px] font-medium leading-tight text-center flex flex-col items-center">
+        {status === 'completed' ? (
+          <>
+            <span>{fmtDate(prog?.completionDate)}</span>
+            {schoolName && (
+              <span className="text-[9px] text-slate-500 font-semibold truncate max-w-[85px] mt-0.5" title={schoolName}>
+                {schoolName}
+              </span>
+            )}
+          </>
+        ) : status === 'waiting_admin' ? (
+          <span>{isAdmin ? 'Clique p/ validar' : 'Aguard. Admin'}</span>
+        ) : (
+          <span>{(isSchoolOwner || isAdmin) ? 'Anexar cert.' : 'Pendente'}</span>
+        )}
       </span>
       {prog?.rejectionReason && status === 'pending' && (
         <span className="text-[9px] font-bold text-rose-400 block mt-1 text-center truncate max-w-[85px]" title={`Recusado: ${prog.rejectionReason}`}>
@@ -1478,6 +1491,7 @@ function TrainingWorkspace({ candidates, modules, schools, currentUser, onComple
                     setDrawerProg({ prog: p, candidateName: c.name });
                   }
                 }}
+                schools={schools}
               />
             );
           })}
@@ -3310,10 +3324,12 @@ interface DashboardWorkspaceProps {
 function DashboardWorkspace({ candidates, modules, schools }: DashboardWorkspaceProps) {
   const [selectedSchoolId, setSelectedSchoolId] = useState<string>('all');
 
-  // Filter candidates based on selected school
+  // Filter candidates based on selected school (candidates who have at least one completed module certified by this school)
   const filteredCandidates = selectedSchoolId === 'all'
     ? candidates
-    : candidates.filter(c => c.schoolId === selectedSchoolId);
+    : candidates.filter(c =>
+        modules.some(m => m.candidateId === c.id && m.status === 'completed' && m.schoolId === selectedSchoolId)
+      );
 
   const total = filteredCandidates.length;
   const pendingValidation = filteredCandidates.filter(c => c.status === 'pending_validation').length;
@@ -3330,12 +3346,18 @@ function DashboardWorkspace({ candidates, modules, schools }: DashboardWorkspace
   const trainingSuccessRate = total > 0 ? Math.round((completed / Math.max(1, total - pendingValidation - rejectedValidation)) * 100) : 0;
   const hiringRate = completed > 0 ? Math.round((hired / completed) * 100) : 0;
 
-  // Module Completion Counters (among candidates currently in progress or completed)
+  // Module Completion Counters (among candidates currently in progress or completed, filtered by school that executed the module)
   const candidateIds = filteredCandidates.map(c => c.id);
   const relevantModules = modules.filter(m => candidateIds.includes(m.candidateId));
-  const teoricoDone = relevantModules.filter(m => m.moduleCode === 'TEORICO' && m.status === 'completed').length;
-  const simuladorDone = relevantModules.filter(m => m.moduleCode === 'SIMULADOR' && m.status === 'completed').length;
-  const vooDone = relevantModules.filter(m => m.moduleCode === 'VOO' && m.status === 'completed').length;
+  const teoricoDone = relevantModules.filter(
+    m => m.moduleCode === 'TEORICO' && m.status === 'completed' && (selectedSchoolId === 'all' || m.schoolId === selectedSchoolId)
+  ).length;
+  const simuladorDone = relevantModules.filter(
+    m => m.moduleCode === 'SIMULADOR' && m.status === 'completed' && (selectedSchoolId === 'all' || m.schoolId === selectedSchoolId)
+  ).length;
+  const vooDone = relevantModules.filter(
+    m => m.moduleCode === 'VOO' && m.status === 'completed' && (selectedSchoolId === 'all' || m.schoolId === selectedSchoolId)
+  ).length;
 
   // Average time to complete training (in days)
   const completedCands = filteredCandidates.filter(c => c.status === 'completed' && c.validatedAt);
@@ -3357,11 +3379,14 @@ function DashboardWorkspace({ candidates, modules, schools }: DashboardWorkspace
   // School ranking (only if 'all' is selected)
   const schoolRanking = schools.map(s => {
     const completedModulesCount = modules.filter(m => {
-      if (m.status !== 'completed') return false;
-      const cand = candidates.find(c => c.id === m.candidateId);
-      return cand && cand.schoolId === s.id;
+      return m.status === 'completed' && m.schoolId === s.id;
     }).length;
-    const totalSchool = candidates.filter(c => c.schoolId === s.id).length;
+    // Count unique candidates who performed modules in this school (Opção B)
+    const totalSchool = new Set(
+      modules
+        .filter(m => m.status === 'completed' && m.schoolId === s.id)
+        .map(m => m.candidateId)
+    ).size;
     return { name: s.name, completedCount: completedModulesCount, total: totalSchool };
   }).sort((a, b) => b.completedCount - a.completedCount);
 
@@ -3531,7 +3556,7 @@ function DashboardWorkspace({ candidates, modules, schools }: DashboardWorkspace
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-xs font-semibold text-slate-300 truncate">{sr.name}</p>
-                    <p className="text-[10px] text-slate-500 mt-0.5">{sr.total} candidatos registrados</p>
+                    <p className="text-[10px] text-slate-500 mt-0.5">{sr.total} candidatos treinados</p>
                   </div>
                   <div className="text-right shrink-0">
                     <span className="text-sm font-extrabold text-sky-400">{sr.completedCount}</span>

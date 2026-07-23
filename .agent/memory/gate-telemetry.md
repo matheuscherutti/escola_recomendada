@@ -16,3 +16,4 @@
 <!-- Entradas abaixo. "Mudou o plano?": a resposta do usuário alterou escopo/abordagem vs. o que seria feito sem perguntar. "Suposição correta?": preencher só quando o Gate prosseguiu com suposição declarada em vez de perguntar; N/A caso contrário. -->
 | 2026-07-13 | permissoes-plano-aprovado | Nível de risco/autonomia aceito (irreversível: define o que roda sem supervisão) | 1 | Não (confirmou a recomendação) | N/A |
 | 2026-07-13 | site-exemplo-premium | Tema/setor, Estilo/vibes de design, Stack de tecnologia | 3 | Sim (definiu o estilo como Futuristic Cyber-HUD e o tema como IA em vez do padrão de Estúdio de Arquitetura Brutalista) | N/A |
+| 2026-07-23 | manual-escolas-parceiras | Output shape (formato), Users/Audience (tom), Scope (diagramas/layouts) | 3 | Sim (definiu Markdown no repositório, tom direto e uso de diagramas de interface) | N/A |
