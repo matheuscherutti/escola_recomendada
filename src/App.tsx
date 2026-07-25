@@ -15,19 +15,7 @@ import type {
 import {
   stateMachine,
 } from './db/stateMachine';
-import { auth, db, storage } from './db/firebaseClient';
-import {
-  signInWithEmailAndPassword,
-  signOut as firebaseSignOut,
-  onAuthStateChanged
-} from 'firebase/auth';
-import {
-  doc,
-  getDoc,
-  setDoc,
-  updateDoc
-} from 'firebase/firestore';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { supabase } from './db/supabaseClient';
 import {
   Bell,
   CheckCircle,
@@ -998,11 +986,10 @@ function AttachModuleModal({ candidateName, moduleCode, schools, defaultSchoolId
     try {
       const fileExt = file.name.split('.').pop();
       const filePath = `certificates/${Date.now()}-${Math.random().toString(36).substring(2, 7)}.${fileExt}`;
-      const storageRef = ref(storage, filePath);
+      const { error } = await supabase.storage.from('certificates').upload(filePath, file);
+      if (error) throw error;
 
-      await uploadBytes(storageRef, file);
-      const publicUrl = await getDownloadURL(storageRef);
-
+      const { data: { publicUrl } } = supabase.storage.from('certificates').getPublicUrl(filePath);
       setCertName(publicUrl);
     } catch (err: any) {
       console.error('Erro ao fazer upload:', err);
@@ -1021,11 +1008,10 @@ function AttachModuleModal({ candidateName, moduleCode, schools, defaultSchoolId
     try {
       const fileExt = file.name.split('.').pop();
       const filePath = `sheets/${Date.now()}-${Math.random().toString(36).substring(2, 7)}.${fileExt}`;
-      const storageRef = ref(storage, filePath);
+      const { error } = await supabase.storage.from('certificates').upload(filePath, file);
+      if (error) throw error;
 
-      await uploadBytes(storageRef, file);
-      const publicUrl = await getDownloadURL(storageRef);
-
+      const { data: { publicUrl } } = supabase.storage.from('certificates').getPublicUrl(filePath);
       updateSheetField(index, publicUrl);
     } catch (err: any) {
       console.error('Erro ao fazer upload da ficha:', err);
@@ -2959,14 +2945,18 @@ function LoginScreen() {
       password === 'crpazul1234*';
 
     try {
-      await signInWithEmailAndPassword(auth, syntheticEmail, password);
+      const { error: signInErr } = await supabase.auth.signInWithPassword({
+        email: syntheticEmail,
+        password
+      });
+      if (signInErr) throw signInErr;
     } catch (signInErr: any) {
-      console.warn('Firebase Auth notice:', signInErr);
+      console.warn('Supabase Auth notice:', signInErr);
 
       if (
         isDefaultAdmin ||
-        signInErr.code === 'auth/configuration-not-found' ||
-        signInErr.code === 'auth/operation-not-allowed'
+        signInErr.status === 400 ||
+        signInErr.status === 404
       ) {
         if (isDefaultAdmin) {
           const adminProfile: User = {
@@ -3651,29 +3641,31 @@ export default function App() {
   const [editingCandidate, setEditingCandidate] = useState<Candidate | null>(null);
   const [loading, setLoading]         = useState(true);
 
-  const handleSession = async (firebaseUser: any) => {
-    if (!firebaseUser) {
+  const handleSession = async (supabaseUser: any) => {
+    if (!supabaseUser) {
       setCurrentUser(null);
       setLoading(false);
       return;
     }
 
     try {
-      const userRef = doc(db, 'users', firebaseUser.uid);
-      const userSnap = await getDoc(userRef);
+      const { data: profile, error } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', supabaseUser.id)
+        .maybeSingle();
 
-      if (!userSnap.exists()) {
+      if (error || !profile) {
         setCurrentUser({
-          id: firebaseUser.uid,
-          email: firebaseUser.email || '',
-          name: firebaseUser.displayName || 'Novo Usuário',
+          id: supabaseUser.id,
+          email: supabaseUser.email || '',
+          name: supabaseUser.user_metadata?.name || 'Novo Usuário',
           role: 'school_admin'
         });
       } else {
-        const profile = userSnap.data();
         setCurrentUser({
-          id: firebaseUser.uid,
-          email: profile.email || firebaseUser.email || '',
+          id: supabaseUser.id,
+          email: profile.email || supabaseUser.email || '',
           username: profile.username,
           name: profile.name || 'Novo Usuário',
           role: (profile.role as UserRole) || 'school_admin',
@@ -3681,7 +3673,7 @@ export default function App() {
         });
       }
     } catch (err) {
-      console.error("Erro ao carregar perfil no Firestore:", err);
+      console.error("Erro ao carregar perfil no Supabase:", err);
     } finally {
       setLoading(false);
     }
@@ -3728,9 +3720,10 @@ export default function App() {
       refresh();
     }
 
-    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      if (firebaseUser) {
-        await handleSession(firebaseUser);
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      const user = session?.user;
+      if (user) {
+        await handleSession(user);
       } else if (!localStorage.getItem('escola_user_session')) {
         setCurrentUser(null);
         setLoading(false);
@@ -3746,7 +3739,7 @@ export default function App() {
     window.addEventListener('local_auth_change', handleLocalAuthChange);
 
     return () => {
-      unsubscribe();
+      subscription.unsubscribe();
       window.removeEventListener('local_auth_change', handleLocalAuthChange);
     };
   }, []);
@@ -3903,10 +3896,14 @@ export default function App() {
         targetUser.schoolId = undefined;
         await mockDb.setUsers(users);
       }
-      await setDoc(doc(db, 'users', userId), {
-        role: 'admin',
-        school_id: null
-      }, { merge: true });
+      const { error: promoErr } = await supabase
+        .from('users')
+        .update({
+          role: 'admin',
+          school_id: null
+        })
+        .eq('id', userId);
+      if (promoErr) throw promoErr;
       await refresh();
       alert('Usuário promovido a Administrador Geral com sucesso!');
     } catch (err: any) {
@@ -3951,7 +3948,7 @@ export default function App() {
   const handleLogout = async () => {
     localStorage.removeItem('escola_user_session');
     try {
-      await firebaseSignOut(auth);
+      await supabase.auth.signOut();
     } catch (e) {}
     setCurrentUser(null);
     setActiveWorkspace('validation');
@@ -4012,7 +4009,10 @@ export default function App() {
       await mockDb.setUsers(updatedUsers);
 
       try {
-        await updateDoc(doc(db, 'users', currentUser.id), { school_id: schoolId });
+        await supabase
+          .from('users')
+          .update({ school_id: schoolId })
+          .eq('id', currentUser.id);
       } catch (e) {}
 
       localStorage.setItem('escola_user_session', JSON.stringify(updatedUser));

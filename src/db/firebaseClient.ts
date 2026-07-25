@@ -18,4 +18,10 @@ const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 export const auth = getAuth(app);
 export const db = getFirestore(app);
 export const storage = getStorage(app);
+
+// Configura tempo limite para tentativas de upload e operações em 6 segundos (padrão é 10 minutos)
+// Evita que a interface fique presa em "Enviando..." indefinidamente em caso de erro CORS/conexão
+storage.maxUploadRetryTime = 6000;
+storage.maxOperationRetryTime = 6000;
+
 export default app;

@@ -1,13 +1,4 @@
-import { db } from './firebaseClient';
-import {
-  collection,
-  getDocs,
-  doc,
-  setDoc,
-  query,
-  orderBy,
-  writeBatch
-} from 'firebase/firestore';
+import { supabase } from './supabaseClient';
 
 export type UserRole = 'admin' | 'school_admin';
 export type CandidateStatus = 'pending_validation' | 'rejected' | 'in_progress' | 'completed';
@@ -101,15 +92,7 @@ export interface Notification {
   readAt?: string;
 }
 
-// Dados mockados iniciais para Seeding
-export const INITIAL_USERS: User[] = [
-  { id: 'usr-admin', email: 'admin@empresa.com', username: 'admin', name: 'Admin Geral (Minha Empresa)', role: 'admin', password: 'crpazul1234*' }
-];
-
-export const INITIAL_SCHOOLS: School[] = [];
-
-
-// Mappers para converter entre CamelCase e SnakeCase
+// Mappers para converter entre CamelCase (TS) e SnakeCase (DB)
 const mapUserToTS = (row: any): User => ({
   id: row.id,
   email: row.email,
@@ -280,171 +263,103 @@ const mapNotificationToDb = (n: Notification) => ({
   read_at: n.readAt || null
 });
 
-// Camada de Banco de Dados Assíncrona com Cloud Firestore
+// Camada de Banco de Dados Assíncrona com Supabase
 export const mockDb = {
   getUsers: async (): Promise<User[]> => {
-    let list: User[] = [];
-    try {
-      const snap = await getDocs(collection(db, 'users'));
-      if (!snap.empty) {
-        list = snap.docs.map((d) => mapUserToTS({ id: d.id, ...d.data() }));
-      } else {
-        await mockDb.setUsers(INITIAL_USERS);
-        list = [...INITIAL_USERS];
-      }
-    } catch (err) {
-      console.error('Erro ao ler usuários no Firestore:', err);
-      list = [...INITIAL_USERS];
+    const { data, error } = await supabase.from('users').select('*');
+    if (error) {
+      console.error('Erro ao ler usuários no Supabase:', error);
+      throw error;
     }
-
-    try {
-      const stored = localStorage.getItem('escola_registered_users');
-      if (stored) {
-        const parsed: User[] = JSON.parse(stored);
-        parsed.forEach(lu => {
-          const idx = list.findIndex(u => u.id === lu.id || u.email === lu.email);
-          if (idx >= 0) {
-            list[idx] = { ...list[idx], ...lu };
-          } else {
-            list.push(lu);
-          }
-        });
-      }
-    } catch (e) {}
-
-    return list;
+    return data.map(mapUserToTS);
   },
   setUsers: async (data: User[]): Promise<void> => {
-    try {
-      localStorage.setItem('escola_registered_users', JSON.stringify(data));
-    } catch (e) {}
-
-    try {
-      for (const u of data) {
-        try {
-          await setDoc(doc(db, 'users', u.id), mapUserToDb(u), { merge: true });
-        } catch (singleErr) {
-          // Ignorar se falhar a atualização de outro documento (ex: admin tentando ser re-salvo por visitante)
-        }
-      }
-    } catch (err) {
-      console.error('Erro ao salvar usuários no Firestore:', err);
+    const { error } = await supabase.from('users').upsert(data.map(mapUserToDb));
+    if (error) {
+      console.error('Erro ao salvar usuários no Supabase:', error);
+      throw error;
     }
   },
   getSchools: async (): Promise<School[]> => {
-    let list: School[] = [];
-    try {
-      const snap = await getDocs(collection(db, 'schools'));
-      if (!snap.empty) {
-        list = snap.docs.map((d) => mapSchoolToTS({ id: d.id, ...d.data() }));
-      } else {
-        await mockDb.setSchools(INITIAL_SCHOOLS);
-        list = [...INITIAL_SCHOOLS];
-      }
-    } catch (err) {
-      console.error('Erro ao ler escolas no Firestore:', err);
-      list = [...INITIAL_SCHOOLS];
+    const { data, error } = await supabase.from('schools').select('*');
+    if (error) {
+      console.error('Erro ao ler escolas no Supabase:', error);
+      throw error;
     }
-
-    try {
-      const stored = localStorage.getItem('escola_registered_schools');
-      if (stored) {
-        const parsed: School[] = JSON.parse(stored);
-        parsed.forEach(ls => {
-          if (!list.some(s => s.id === ls.id)) {
-            list.push(ls);
-          }
-        });
-      }
-    } catch (e) {}
-
-    return list;
+    return data.map(mapSchoolToTS);
   },
   setSchools: async (data: School[]): Promise<void> => {
-    try {
-      localStorage.setItem('escola_registered_schools', JSON.stringify(data));
-    } catch (e) {}
-
-    try {
-      const batch = writeBatch(db);
-      data.forEach((s) => {
-        batch.set(doc(db, 'schools', s.id), mapSchoolToDb(s), { merge: true });
-      });
-      await batch.commit();
-    } catch (err) {
-      console.error('Erro ao salvar escolas no Firestore:', err);
+    const { error } = await supabase.from('schools').upsert(data.map(mapSchoolToDb));
+    if (error) {
+      console.error('Erro ao salvar escolas no Supabase:', error);
+      throw error;
     }
   },
   getCandidates: async (): Promise<Candidate[]> => {
-    try {
-      const snap = await getDocs(collection(db, 'candidates'));
-      return snap.docs.map((d) => mapCandidateToTS({ id: d.id, ...d.data() }));
-    } catch (err) {
-      console.error('Erro ao ler candidatos no Firestore:', err);
-      return [];
+    const { data, error } = await supabase.from('candidates').select('*');
+    if (error) {
+      console.error('Erro ao ler candidatos no Supabase:', error);
+      throw error;
     }
+    return data.map(mapCandidateToTS);
   },
   setCandidates: async (data: Candidate[]): Promise<void> => {
-    const batch = writeBatch(db);
-    data.forEach((c) => {
-      batch.set(doc(db, 'candidates', c.id), mapCandidateToDb(c), { merge: true });
-    });
-    await batch.commit();
+    const { error } = await supabase.from('candidates').upsert(data.map(mapCandidateToDb));
+    if (error) {
+      console.error('Erro ao salvar candidatos no Supabase:', error);
+      throw error;
+    }
   },
   getModuleProgress: async (): Promise<CandidateModuleProgress[]> => {
-    try {
-      const snap = await getDocs(collection(db, 'candidate_module_progress'));
-      return snap.docs.map((d) => mapModuleToTS({ id: d.id, ...d.data() }));
-    } catch (err) {
-      console.error('Erro ao ler progresso de módulos no Firestore:', err);
-      return [];
+    const { data, error } = await supabase.from('candidate_module_progress').select('*');
+    if (error) {
+      console.error('Erro ao ler progresso de módulos no Supabase:', error);
+      throw error;
     }
+    return data.map(mapModuleToTS);
   },
   setModuleProgress: async (data: CandidateModuleProgress[]): Promise<void> => {
-    const batch = writeBatch(db);
-    data.forEach((m) => {
-      batch.set(doc(db, 'candidate_module_progress', m.id), mapModuleToDb(m), { merge: true });
-    });
-    await batch.commit();
+    const { error } = await supabase.from('candidate_module_progress').upsert(data.map(mapModuleToDb));
+    if (error) {
+      console.error('Erro ao salvar progresso de módulos no Supabase:', error);
+      throw error;
+    }
   },
   getAuditLogs: async (): Promise<AuditLog[]> => {
-    try {
-      const q = query(collection(db, 'audit_logs'), orderBy('created_at', 'desc'));
-      const snap = await getDocs(q);
-      return snap.docs.map((d) => mapLogToTS({ id: d.id, ...d.data() }));
-    } catch (err) {
-      // Fallback se o índice de ordenação ainda não tiver sido criado no Firestore
-      const snap = await getDocs(collection(db, 'audit_logs'));
-      return snap.docs
-        .map((d) => mapLogToTS({ id: d.id, ...d.data() }))
-        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    const { data, error } = await supabase
+      .from('audit_logs')
+      .select('*')
+      .order('created_at', { ascending: false });
+    if (error) {
+      console.error('Erro ao ler logs de auditoria no Supabase:', error);
+      throw error;
     }
+    return data.map(mapLogToTS);
   },
   setAuditLogs: async (data: AuditLog[]): Promise<void> => {
-    const batch = writeBatch(db);
-    data.forEach((l) => {
-      batch.set(doc(db, 'audit_logs', l.id), mapLogToDb(l), { merge: true });
-    });
-    await batch.commit();
-  },
-  getNotifications: async (): Promise<Notification[]> => {
-    try {
-      const q = query(collection(db, 'notifications'), orderBy('created_at', 'desc'));
-      const snap = await getDocs(q);
-      return snap.docs.map((d) => mapNotificationToTS({ id: d.id, ...d.data() }));
-    } catch (err) {
-      const snap = await getDocs(collection(db, 'notifications'));
-      return snap.docs
-        .map((d) => mapNotificationToTS({ id: d.id, ...d.data() }))
-        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    const { error } = await supabase.from('audit_logs').upsert(data.map(mapLogToDb));
+    if (error) {
+      console.error('Erro ao salvar logs de auditoria no Supabase:', error);
+      throw error;
     }
   },
+  getNotifications: async (): Promise<Notification[]> => {
+    const { data, error } = await supabase
+      .from('notifications')
+      .select('*')
+      .order('created_at', { ascending: false });
+    if (error) {
+      console.error('Erro ao ler notificações no Supabase:', error);
+      throw error;
+    }
+    return data.map(mapNotificationToTS);
+  },
   setNotifications: async (data: Notification[]): Promise<void> => {
-    const batch = writeBatch(db);
-    data.forEach((n) => {
-      batch.set(doc(db, 'notifications', n.id), mapNotificationToDb(n), { merge: true });
-    });
-    await batch.commit();
+    const { error } = await supabase.from('notifications').upsert(data.map(mapNotificationToDb));
+    if (error) {
+      console.error('Erro ao salvar notificações no Supabase:', error);
+      throw error;
+    }
   },
   resetDatabase: async (): Promise<void> => {
     console.warn('Função de reset do banco desativada por segurança.');
