@@ -1438,7 +1438,7 @@ function TrainingWorkspace({ candidates, modules, schools, currentUser, onComple
               )}
             </div>
             <p className="text-xs text-slate-500">
-              <span className="font-mono">{c.re}</span> · <span className="font-mono">{c.anac}</span>
+              RE: <span className="font-mono">{c.re}</span> · CANAC: <span className="font-mono">{c.anac}</span>
             </p>
           </div>
           <div className="text-right shrink-0">
@@ -1670,7 +1670,7 @@ function KanbanCard({ candidate: c, modules, currentUser, onMove, onUpdateGupy, 
         <div className="flex justify-between items-start gap-2">
           <div>
             <p className="font-semibold text-slate-200 text-sm">{c.name}</p>
-            <p className="text-[11px] text-slate-500 font-mono mt-0.5">{c.re} · {c.anac}</p>
+            <p className="text-[11px] text-slate-500 font-mono mt-0.5">RE: {c.re} · CANAC: {c.anac}</p>
           </div>
           {onEditCandidate && (
             <button
