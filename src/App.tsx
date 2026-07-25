@@ -2936,93 +2936,133 @@ function LoginScreen() {
 
     const rawInput = email.trim();
     const isEmail = rawInput.includes('@');
-    const syntheticEmail = isEmail
-      ? rawInput
-      : `${rawInput.toLowerCase().replace(/[^a-z0-9]/g, '')}@escolarecomendada.local`;
 
     const isDefaultAdmin =
       (rawInput.toLowerCase() === 'admin' || rawInput === 'admin@empresa.com') &&
       password === 'crpazul1234*';
 
-    // Para o admin padrão que digita só 'admin', usar o e-mail real no Supabase Auth
-    const loginEmail = isDefaultAdmin && !isEmail ? 'admin@empresa.com' : syntheticEmail;
-
     try {
+      // 1. Resolver o e-mail real para autenticar no Supabase Auth
+      let loginEmail: string;
+      if (isEmail) {
+        loginEmail = rawInput;
+      } else if (isDefaultAdmin) {
+        loginEmail = 'admin@empresa.com';
+      } else {
+        // Buscar o e-mail real pelo username no banco de dados
+        const { data: foundByUsername } = await supabase
+          .from('users')
+          .select('email')
+          .eq('username', rawInput.toLowerCase())
+          .maybeSingle();
+        loginEmail = foundByUsername?.email ??
+          `${rawInput.toLowerCase().replace(/[^a-z0-9]/g, '')}@escolarecomendada.local`;
+      }
+
+      // 2. Tentar autenticação via Supabase Auth
       const { error: signInErr } = await supabase.auth.signInWithPassword({
         email: loginEmail,
         password
       });
-      if (signInErr) throw signInErr;
-    } catch (signInErr: any) {
-      console.warn('Supabase Auth notice:', signInErr);
 
-      if (
-        isDefaultAdmin ||
-        signInErr.status === 400 ||
-        signInErr.status === 404
-      ) {
-        if (isDefaultAdmin) {
-          const adminProfile: User = {
-            id: 'usr-admin',
-            email: 'admin@empresa.com',
-            username: 'admin',
-            name: 'Admin Geral (Minha Empresa)',
-            role: 'admin'
-          };
-          localStorage.setItem('escola_user_session', JSON.stringify(adminProfile));
-          window.dispatchEvent(new Event('local_auth_change'));
-          setLoading(false);
-          return;
-        }
-      }
+      if (!signInErr) {
+        // LOGIN VIA SUPABASE AUTH BEM-SUCEDIDO — carregar perfil e validar
+        const { data: profile } = await supabase
+          .from('users')
+          .select('*')
+          .eq('email', loginEmail)
+          .maybeSingle();
 
-      // Tentar login via banco de dados (localStorage + Firestore)
-      try {
-        const users = await mockDb.getUsers();
-        const found = users.find(u =>
-          (u.email.toLowerCase() === rawInput.toLowerCase() || u.username?.toLowerCase() === rawInput.toLowerCase() || u.email.toLowerCase() === syntheticEmail.toLowerCase()) &&
-          (u as any).password === password
-        );
-        if (found) {
-          // 1. Checar se a escola/usuário está inativo
-          if (found.active === false) {
+        if (profile) {
+          if ((profile as any).active === false) {
+            await supabase.auth.signOut();
             setError('Sua escola encontra-se inativa. Entre em contato com o Administrador.');
             setLoading(false);
             return;
           }
 
-          if (found.schoolId) {
+          if (profile.school_id) {
             const schools = await mockDb.getSchools();
-            const linkedSchool = schools.find(s => s.id === found.schoolId);
+            const linkedSchool = schools.find(s => s.id === profile.school_id);
             if (linkedSchool && linkedSchool.active === false) {
+              await supabase.auth.signOut();
               setError('Sua escola encontra-se inativa. Entre em contato com o Administrador.');
               setLoading(false);
               return;
             }
           }
 
-          if (found.role === 'school_admin' && !found.schoolId) {
+          if (profile.role === 'school_admin' && !profile.school_id) {
+            await supabase.auth.signOut();
             setError('Sua conta ainda está aguardando aprovação do administrador. Aguarde o contato.');
             setLoading(false);
             return;
           }
 
-          // 2. Checar se exige troca de senha no Primeiro Acesso
-          if (found.primeiroAcesso) {
-            setFirstAccessUser(found);
+          if (profile.primeiro_acesso) {
+            const userForFirstAccess: User = {
+              id: profile.id,
+              email: profile.email,
+              username: profile.username,
+              name: profile.name,
+              role: profile.role as UserRole,
+              schoolId: profile.school_id
+            };
+            setFirstAccessUser(userForFirstAccess);
             setTempPasswordInput(password);
             setLoading(false);
             return;
           }
+        }
+        // onAuthStateChange carregará o perfil completo
+        return;
+      }
 
-          localStorage.setItem('escola_user_session', JSON.stringify(found));
-          window.dispatchEvent(new Event('local_auth_change'));
+      // 3. Supabase Auth falhou — tentar fallback via senha no banco de dados
+      console.warn('Supabase Auth falhou, tentando fallback local:', signInErr.message);
+      const users = await mockDb.getUsers();
+      const found = users.find(u =>
+        (u.email.toLowerCase() === rawInput.toLowerCase() ||
+         u.username?.toLowerCase() === rawInput.toLowerCase() ||
+         u.email.toLowerCase() === loginEmail.toLowerCase()) &&
+        (u as any).password === password
+      );
+
+      if (found) {
+        if (found.active === false) {
+          setError('Sua escola encontra-se inativa. Entre em contato com o Administrador.');
           setLoading(false);
           return;
         }
-      } catch (e) {}
+        if (found.schoolId) {
+          const schools = await mockDb.getSchools();
+          const linkedSchool = schools.find(s => s.id === found.schoolId);
+          if (linkedSchool && linkedSchool.active === false) {
+            setError('Sua escola encontra-se inativa. Entre em contato com o Administrador.');
+            setLoading(false);
+            return;
+          }
+        }
+        if (found.role === 'school_admin' && !found.schoolId) {
+          setError('Sua conta ainda está aguardando aprovação do administrador. Aguarde o contato.');
+          setLoading(false);
+          return;
+        }
+        if (found.primeiroAcesso) {
+          setFirstAccessUser(found);
+          setTempPasswordInput(password);
+          setLoading(false);
+          return;
+        }
+        localStorage.setItem('escola_user_session', JSON.stringify(found));
+        window.dispatchEvent(new Event('local_auth_change'));
+        return;
+      }
 
       setError('Usuário ou senha incorretos. Verifique suas credenciais.');
+    } catch (err: any) {
+      console.error('Erro no login:', err);
+      setError('Erro ao realizar login. Tente novamente.');
     } finally {
       setLoading(false);
     }

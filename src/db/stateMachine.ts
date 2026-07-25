@@ -1119,6 +1119,16 @@ export const stateMachine = {
         .eq('id', targetUser.id);
       if (updateDbErr) throw updateDbErr;
 
+      // Atualizar a senha no Supabase Auth via RPC segura (SECURITY DEFINER)
+      // Funciona somente quando o admin está autenticado com JWT válido
+      const { error: rpcErr } = await supabase.rpc('reset_user_password_admin', {
+        user_id: targetUser.id,
+        new_password: newTempPassword
+      });
+      if (rpcErr) {
+        console.warn('RPC Auth reset notice (sessão local ativa):', rpcErr.message);
+      }
+
       // Audit Log
       const logId = `log-${generateId()}`;
       const { error: insertLogErr } = await supabase.from('audit_logs').insert({
@@ -1185,6 +1195,12 @@ export const stateMachine = {
         })
         .eq('id', userId);
       if (updateDbErr) throw updateDbErr;
+
+      // Atualizar a senha no Supabase Auth (funciona porque o usuário tem uma sessão JWT válida)
+      const { error: authUpdateErr } = await supabase.auth.updateUser({ password: newPassword });
+      if (authUpdateErr) {
+        console.warn('Supabase Auth password sync notice:', authUpdateErr.message);
+      }
 
       // Audit Log
       const logId = `log-${generateId()}`;
