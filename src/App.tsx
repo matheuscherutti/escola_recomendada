@@ -1085,16 +1085,7 @@ function AttachModuleModal({ candidateName, moduleCode, schools, defaultSchoolId
                 {uploading ? 'Enviando arquivo...' : fileName ? `Substituir: ${fileName}` : 'Selecionar Arquivo PDF ou Imagem'}
               </label>
               
-              <div className="relative mt-1">
-                <FileText className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
-                <input
-                  type="text"
-                  value={certName}
-                  onChange={(e) => setCertName(e.target.value)}
-                  placeholder="Nome do certificado ou URL"
-                  className="w-full bg-brand-medium border border-brand-medium/40 text-slate-300 text-[10px] rounded-xl pl-9 pr-3 py-2.5 outline-none focus:border-brand-accent transition"
-                />
-              </div>
+
             </div>
           </div>
           <div>
@@ -1160,7 +1151,13 @@ function AttachModuleModal({ candidateName, moduleCode, schools, defaultSchoolId
           <button onClick={onClose} className="flex-1 py-2.5 rounded-xl bg-brand-medium hover:bg-brand-medium/80 text-slate-300 text-sm font-semibold transition">
             Cancelar
           </button>
-          <button onClick={() => { if (date && certName && selectedSchoolId) { onSubmit(date, certName, classSheets.filter(Boolean), selectedSchoolId); onClose(); } }}
+          <button onClick={() => {
+            const finalCert = certName || `cert_${moduleCode.toLowerCase()}.pdf`;
+            if (date && selectedSchoolId) {
+              onSubmit(date, finalCert, classSheets.filter(Boolean), selectedSchoolId);
+              onClose();
+            }
+          }}
             className="flex-1 py-2.5 rounded-xl bg-sky-500 hover:bg-sky-600 text-slate-950 text-sm font-bold transition shadow-lg shadow-sky-500/20">
             Enviar Certificado
           </button>
