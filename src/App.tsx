@@ -1415,7 +1415,6 @@ function TrainingWorkspace({ candidates, modules, schools, currentUser, onComple
 
   const renderCandidateCard = (c: Candidate) => {
     const { mods, done, pct } = getProgress(c.id);
-    const schoolName = schools.find((s) => s.id === c.schoolId)?.name ?? '—';
     const isSchoolOwner = currentUser.role === 'school_admin'; // Any school admin can attach/upload
 
     return (
@@ -1439,7 +1438,7 @@ function TrainingWorkspace({ candidates, modules, schools, currentUser, onComple
               )}
             </div>
             <p className="text-xs text-slate-500">
-              <span className="font-mono">{c.re}</span> · <span className="font-mono">{c.anac}</span> · <Building className="w-3 h-3 inline mr-0.5 text-slate-600" />{schoolName}
+              <span className="font-mono">{c.re}</span> · <span className="font-mono">{c.anac}</span>
             </p>
           </div>
           <div className="text-right shrink-0">
