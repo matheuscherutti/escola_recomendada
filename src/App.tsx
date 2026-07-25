@@ -2944,9 +2944,12 @@ function LoginScreen() {
       (rawInput.toLowerCase() === 'admin' || rawInput === 'admin@empresa.com') &&
       password === 'crpazul1234*';
 
+    // Para o admin padrão que digita só 'admin', usar o e-mail real no Supabase Auth
+    const loginEmail = isDefaultAdmin && !isEmail ? 'admin@empresa.com' : syntheticEmail;
+
     try {
       const { error: signInErr } = await supabase.auth.signInWithPassword({
-        email: syntheticEmail,
+        email: loginEmail,
         password
       });
       if (signInErr) throw signInErr;
