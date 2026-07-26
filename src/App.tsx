@@ -193,7 +193,15 @@ function NotificationDropdown({
           </div>
         ) : (
           notifications.map((n) => (
-            <div key={n.id} className={`px-4 py-3 border-b border-brand-medium/20 flex gap-3 hover:bg-brand-medium/20 transition cursor-pointer ${!n.isRead ? 'bg-sky-950/20' : ''}`}>
+            <div
+              key={n.id}
+              onClick={() => {
+                if (!n.isRead && onMarkAllRead) {
+                  onMarkAllRead();
+                }
+              }}
+              className={`px-4 py-3 border-b border-brand-medium/20 flex gap-3 hover:bg-brand-medium/20 transition cursor-pointer ${!n.isRead ? 'bg-sky-950/20' : ''}`}
+            >
               <div className="mt-0.5 shrink-0">{notifIcon(n.type)}</div>
               <div className="flex-1 min-w-0">
                 <p className="text-xs font-semibold text-slate-300 leading-tight">{n.title}</p>
@@ -3841,19 +3849,47 @@ export default function App() {
   }, [currentUser]);
 
   const visibleNotifications = currentUser
-    ? notifications.filter((n) =>
-        currentUser.role === 'admin' ? n.recipientRole === 'admin' : n.recipientSchoolId === currentUser.schoolId
-      )
+    ? notifications.filter((n) => {
+        if (currentUser.role === 'admin') {
+          return n.recipientRole === 'admin' || (!n.recipientRole && !n.recipientSchoolId);
+        } else {
+          return Boolean(currentUser.schoolId && n.recipientSchoolId === currentUser.schoolId);
+        }
+      })
     : [];
 
   const markAllRead = async () => {
     if (!currentUser) return;
+    const now = new Date().toISOString();
+    const targetIds: string[] = [];
+
     const updated = notifications.map((n) => {
-      const belongs = currentUser.role === 'admin' ? n.recipientRole === 'admin' : n.recipientSchoolId === currentUser.schoolId;
-      return belongs ? { ...n, isRead: true, readAt: new Date().toISOString() } : n;
+      const belongs = currentUser.role === 'admin'
+        ? (n.recipientRole === 'admin' || (!n.recipientRole && !n.recipientSchoolId))
+        : Boolean(currentUser.schoolId && n.recipientSchoolId === currentUser.schoolId);
+
+      if (belongs && !n.isRead) {
+        targetIds.push(n.id);
+        return { ...n, isRead: true, readAt: now };
+      }
+      return n;
     });
-    await mockDb.setNotifications(updated);
-    await refresh();
+
+    // Atualiza estado do React imediatamente para a badge e os ícones apagarem na hora
+    setNotifications(updated);
+
+    // Persiste alteração de leitura no Supabase
+    if (targetIds.length > 0) {
+      try {
+        const { error } = await supabase
+          .from('notifications')
+          .update({ is_read: true, read_at: now })
+          .in('id', targetIds);
+        if (error) console.error('Erro ao marcar notificações como lidas no Supabase:', error);
+      } catch (err) {
+        console.error('Erro no markAllRead:', err);
+      }
+    }
   };
 
   const handleApprove = async (id: string) => {

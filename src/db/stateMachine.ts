@@ -358,12 +358,16 @@ export const stateMachine = {
       }
 
       if (currentUser.role === 'school_admin') {
+        let schoolName = currentUser.name || 'Escola';
+        const { data: sData } = await supabase.from('schools').select('name').eq('id', schoolId).maybeSingle();
+        if (sData?.name) schoolName = sData.name;
+
         const notifId = `not-${generateId()}`;
         const newNotification: Notification = {
           id: notifId,
           recipientRole: 'admin',
           title: 'Novo Certificado Anexado',
-          message: `A escola enviou o certificado do módulo ${moduleCode === 'TEORICO' ? 'Teórico' : moduleCode === 'SIMULADOR' ? 'Simulador' : 'Voo'} para o candidato ${candidate.name} (RE: ${candidate.re}).`,
+          message: `A escola ${schoolName} enviou o certificado do módulo ${moduleCode === 'TEORICO' ? 'Teórico' : moduleCode === 'SIMULADOR' ? 'Simulador' : 'Voo'} para o candidato ${candidate.name} (RE: ${candidate.re}).`,
           type: 'pending_validation',
           candidateId: candidate.id,
           isRead: false,
