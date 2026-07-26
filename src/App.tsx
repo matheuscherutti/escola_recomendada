@@ -754,12 +754,13 @@ function CertificateDrawer({ prog, candidateName, onValidate, onReject, onClose,
               <span className="text-xs text-slate-500 uppercase font-semibold tracking-wide flex-shrink-0">Certificado</span>
               <div className="flex items-center gap-1.5 overflow-hidden">
                 <a
-                  href={prog.certificateUrl ? (prog.certificateUrl.startsWith('http') ? prog.certificateUrl : `/${prog.certificateUrl}`) : '#'}
+                  href={prog.certificateUrl && prog.certificateUrl.startsWith('http') ? prog.certificateUrl : '#'}
                   target="_blank"
                   rel="noopener noreferrer"
                   onClick={(e) => {
-                    if (!prog.certificateUrl) {
+                    if (!prog.certificateUrl || !prog.certificateUrl.startsWith('http')) {
                       e.preventDefault();
+                      alert('Este registro não possui um arquivo PDF/Imagem armazenado no banco. Por favor, reanexe o documento em PDF ou Imagem.');
                     }
                   }}
                   className="flex items-center gap-1 text-xs text-sky-400 font-semibold hover:text-sky-300 hover:underline transition cursor-pointer truncate max-w-[140px]"
@@ -770,8 +771,11 @@ function CertificateDrawer({ prog, candidateName, onValidate, onReject, onClose,
                 {prog.certificateUrl && (
                   <button
                     onClick={() => {
-                      const url = prog.certificateUrl!.startsWith('http') ? prog.certificateUrl! : `/${prog.certificateUrl!}`;
-                      downloadFile(url, `certificado_${candidateName.toLowerCase().replace(/\s+/g, '_')}.pdf`);
+                      if (!prog.certificateUrl || !prog.certificateUrl.startsWith('http')) {
+                        alert('Este registro não possui um arquivo PDF/Imagem armazenado no banco.');
+                        return;
+                      }
+                      downloadFile(prog.certificateUrl, `certificado_${candidateName.toLowerCase().replace(/\s+/g, '_')}.pdf`);
                     }}
                     className="p-1 rounded bg-brand-medium hover:bg-brand-medium/80 text-sky-400 hover:text-sky-300 transition"
                     title="Baixar Certificado"
@@ -791,9 +795,15 @@ function CertificateDrawer({ prog, candidateName, onValidate, onReject, onClose,
                       <span className="text-[11px] text-slate-400">Ficha {index + 1}:</span>
                       <div className="flex items-center gap-1.5 overflow-hidden">
                         <a
-                          href={sheet ? (sheet.startsWith('http') ? sheet : `/${sheet}`) : '#'}
+                          href={sheet && sheet.startsWith('http') ? sheet : '#'}
                           target="_blank"
                           rel="noopener noreferrer"
+                          onClick={(e) => {
+                            if (!sheet || !sheet.startsWith('http')) {
+                              e.preventDefault();
+                              alert('Esta ficha não possui um arquivo PDF/Imagem armazenado no banco.');
+                            }
+                          }}
                           className="flex items-center gap-1 text-[11px] text-sky-400 font-semibold hover:text-sky-300 hover:underline transition cursor-pointer truncate max-w-[140px]"
                         >
                           <FileText className="w-3 h-3 flex-shrink-0" />
@@ -802,8 +812,11 @@ function CertificateDrawer({ prog, candidateName, onValidate, onReject, onClose,
                         {sheet && (
                           <button
                             onClick={() => {
-                              const url = sheet.startsWith('http') ? sheet : `/${sheet}`;
-                              downloadFile(url, `ficha_aula_${index + 1}_${candidateName.toLowerCase().replace(/\s+/g, '_')}.pdf`);
+                              if (!sheet || !sheet.startsWith('http')) {
+                                alert('Esta ficha não possui um arquivo PDF/Imagem armazenado no banco.');
+                                return;
+                              }
+                              downloadFile(sheet, `ficha_aula_${index + 1}_${candidateName.toLowerCase().replace(/\s+/g, '_')}.pdf`);
                             }}
                             className="p-1 rounded bg-brand-medium hover:bg-brand-medium/80 text-sky-400 hover:text-sky-300 transition"
                             title="Baixar Ficha"
@@ -868,12 +881,13 @@ function CertificateDrawer({ prog, candidateName, onValidate, onReject, onClose,
                   <p className="text-xs text-slate-500 mt-1">Visualizador PDF (simulado)</p>
                 </div>
                 <a
-                  href={prog.certificateUrl ? `/${prog.certificateUrl}` : '#'}
+                  href={prog.certificateUrl && prog.certificateUrl.startsWith('http') ? prog.certificateUrl : '#'}
                   target="_blank"
                   rel="noopener noreferrer"
                   onClick={(e) => {
-                    if (!prog.certificateUrl) {
+                    if (!prog.certificateUrl || !prog.certificateUrl.startsWith('http')) {
                       e.preventDefault();
+                      alert('Este certificado foi cadastrado com dados de teste e não possui um arquivo armazenado no banco. Por favor, reanexe o documento em PDF ou Imagem.');
                     }
                   }}
                   className="mt-3 px-4 py-2 bg-sky-500 hover:bg-sky-600 text-slate-950 rounded-xl text-xs font-bold transition flex items-center gap-2 cursor-pointer"
