@@ -123,12 +123,12 @@ CREATE OR REPLACE TRIGGER on_auth_user_created
 -- 10. Funções Auxiliares para Políticas RLS
 CREATE OR REPLACE FUNCTION is_admin()
 RETURNS boolean AS $$
-  SELECT COALESCE((SELECT role = 'admin' FROM public.users WHERE id = auth.uid()), false);
+  SELECT COALESCE((SELECT role = 'admin' FROM public.users WHERE id::text = auth.uid()::text), false);
 $$ LANGUAGE sql SECURITY DEFINER;
 
 CREATE OR REPLACE FUNCTION get_user_school_id()
 RETURNS text AS $$
-  SELECT school_id FROM public.users WHERE id = auth.uid();
+  SELECT school_id FROM public.users WHERE id::text = auth.uid()::text;
 $$ LANGUAGE sql SECURITY DEFINER;
 
 -- 11. Habilitar RLS (Row Level Security) em todas as tabelas

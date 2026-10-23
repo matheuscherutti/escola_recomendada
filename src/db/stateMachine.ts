@@ -11,6 +11,15 @@ import type {
 
 const generateId = () => Math.random().toString(36).substring(2, 9);
 
+const isValidUuid = (id: string | null | undefined): boolean => {
+  if (!id) return false;
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id);
+};
+
+const safeUserId = (id: string | null | undefined): string | null => {
+  return isValidUuid(id) ? (id as string) : null;
+};
+
 export const getSelectionStatusLabel = (status: SelectionStatus): string => {
   switch (status) {
     case 'finalized': return 'Finalizou';
@@ -83,7 +92,7 @@ export const stateMachine = {
       const { error: insertLogErr } = await supabase.from('audit_logs').insert({
         id: logId,
         created_at: timestamp,
-        user_id: currentUser.id,
+        user_id: safeUserId(currentUser?.id),
         user_name: currentUser.name,
         candidate_id: candId,
         candidate_name: name,
@@ -166,7 +175,7 @@ export const stateMachine = {
         .from('candidates')
         .update({
           status: newStatus,
-          validated_by: currentUser.id,
+          validated_by: safeUserId(currentUser?.id),
           validated_at: timestamp,
           updated_at: timestamp
         })
@@ -178,7 +187,7 @@ export const stateMachine = {
       const { error: insertLogErr } = await supabase.from('audit_logs').insert({
         id: logId,
         created_at: timestamp,
-        user_id: currentUser.id,
+        user_id: safeUserId(currentUser?.id),
         user_name: currentUser.name,
         candidate_id: candidate.id,
         candidate_name: candidate.name,
@@ -266,7 +275,7 @@ export const stateMachine = {
         class_sheets: classSheets,
         uploaded_at: timestamp,
         rejection_reason: null,
-        updated_by: currentUser.id,
+        updated_by: safeUserId(currentUser?.id),
         updated_at: timestamp
       });
       if (upsertProgErr) throw upsertProgErr;
@@ -285,7 +294,7 @@ export const stateMachine = {
       const { error: insertLogErr } = await supabase.from('audit_logs').insert({
         id: logId,
         created_at: timestamp,
-        user_id: currentUser.id,
+        user_id: safeUserId(currentUser?.id),
         user_name: currentUser.name,
         candidate_id: candidateId,
         candidate_name: candidate.name,
@@ -424,7 +433,7 @@ export const stateMachine = {
           class_sheets: null,
           rejection_reason: reason,
           uploaded_at: null,
-          updated_by: currentUser.id,
+          updated_by: safeUserId(currentUser?.id),
           updated_at: timestamp
         })
         .eq('id', modId);
@@ -434,7 +443,7 @@ export const stateMachine = {
       const { error: insertLogErr } = await supabase.from('audit_logs').insert({
         id: logId,
         created_at: timestamp,
-        user_id: currentUser.id,
+        user_id: safeUserId(currentUser?.id),
         user_name: currentUser.name,
         candidate_id: candidateId,
         candidate_name: candidate.name,
@@ -516,7 +525,7 @@ export const stateMachine = {
       const { error: insertLogErr } = await supabase.from('audit_logs').insert({
         id: logId,
         created_at: timestamp,
-        user_id: currentUser.id,
+        user_id: safeUserId(currentUser?.id),
         user_name: currentUser.name,
         candidate_id: candidate.id,
         candidate_name: candidate.name,
@@ -588,7 +597,7 @@ export const stateMachine = {
       const { error: insertLogErr } = await supabase.from('audit_logs').insert({
         id: logId,
         created_at: timestamp,
-        user_id: currentUser.id,
+        user_id: safeUserId(currentUser?.id),
         user_name: currentUser.name,
         candidate_id: candidate.id,
         candidate_name: candidate.name,
@@ -647,7 +656,7 @@ export const stateMachine = {
             school_id: schoolId || null,
             certificate_url: certificateName || null,
             class_sheets: classSheets || null,
-            updated_by: currentUser.id,
+            updated_by: safeUserId(currentUser?.id),
             updated_at: timestamp
           })
           .eq('id', modId);
@@ -732,7 +741,7 @@ export const stateMachine = {
         id: logId,
         created_at: timestamp,
         user_name: currentUser.name,
-        user_id: currentUser.id,
+        user_id: safeUserId(currentUser?.id),
         candidate_id: '-',
         candidate_name: 'Sistema (Segurança)',
         changed_field: 'Alteração de Senha',
@@ -781,7 +790,7 @@ export const stateMachine = {
         id: logId,
         created_at: timestamp,
         user_name: currentUser.name,
-        user_id: currentUser.id,
+        user_id: safeUserId(currentUser?.id),
         candidate_id: '-',
         candidate_name: targetUser.name,
         changed_field: 'Redefinição Direta de Senha',
@@ -844,7 +853,7 @@ export const stateMachine = {
       const { error: insertLogErr } = await supabase.from('audit_logs').insert({
         id: logId,
         created_at: timestamp,
-        user_id: currentUser.id,
+        user_id: safeUserId(currentUser?.id),
         user_name: currentUser.name,
         candidate_id: candidate.id,
         candidate_name: candidate.name,
@@ -944,7 +953,7 @@ export const stateMachine = {
       const { error: insertLogErr } = await supabase.from('audit_logs').insert({
         id: logId,
         created_at: timestamp,
-        user_id: currentUser.id,
+        user_id: safeUserId(currentUser?.id),
         user_name: currentUser.name,
         candidate_id: '-',
         candidate_name: cleanName,
@@ -1013,7 +1022,7 @@ export const stateMachine = {
       const { error: insertLogErr } = await supabase.from('audit_logs').insert({
         id: logId,
         created_at: timestamp,
-        user_id: currentUser.id,
+        user_id: safeUserId(currentUser?.id),
         user_name: currentUser.name,
         candidate_id: '-',
         candidate_name: cleanName,
@@ -1067,7 +1076,7 @@ export const stateMachine = {
       const { error: insertLogErr } = await supabase.from('audit_logs').insert({
         id: logId,
         created_at: timestamp,
-        user_id: currentUser.id,
+        user_id: safeUserId(currentUser?.id),
         user_name: currentUser.name,
         candidate_id: '-',
         candidate_name: school.name,
@@ -1138,7 +1147,7 @@ export const stateMachine = {
       const { error: insertLogErr } = await supabase.from('audit_logs').insert({
         id: logId,
         created_at: timestamp,
-        user_id: currentUser.id,
+        user_id: safeUserId(currentUser?.id),
         user_name: currentUser.name,
         candidate_id: '-',
         candidate_name: targetUser.name || 'Escola',
@@ -1211,7 +1220,7 @@ export const stateMachine = {
       const { error: insertLogErr } = await supabase.from('audit_logs').insert({
         id: logId,
         created_at: timestamp,
-        user_id: userId,
+        user_id: safeUserId(userId),
         user_name: userData.name || 'Escola',
         candidate_id: '-',
         candidate_name: userData.name || 'Escola',
@@ -1263,7 +1272,7 @@ export const stateMachine = {
       const { error: insertLogErr } = await supabase.from('audit_logs').insert({
         id: logId,
         created_at: timestamp,
-        user_id: currentUser.id,
+        user_id: safeUserId(currentUser?.id),
         user_name: currentUser.name,
         candidate_id: '-',
         candidate_name: school.name,
@@ -1343,7 +1352,7 @@ export const stateMachine = {
       const { error: insertLogErr } = await supabase.from('audit_logs').insert({
         id: logId,
         created_at: timestamp,
-        user_id: currentUser.id,
+        user_id: safeUserId(currentUser?.id),
         user_name: currentUser.name,
         candidate_id: candidateId,
         candidate_name: name,

@@ -16,6 +16,7 @@ import {
   stateMachine,
 } from './db/stateMachine';
 import { supabase } from './db/supabaseClient';
+import { exportTrainingToExcel, exportSelectionToExcel } from './utils/exportExcel';
 import {
   Bell,
   CheckCircle,
@@ -1518,10 +1519,20 @@ function TrainingWorkspace({ candidates, modules, schools, currentUser, onComple
           </h2>
           <p className="text-sm text-slate-500 mt-1">Acompanhe o progresso dos módulos: Teórico · Simulador · Voo</p>
         </div>
-        <div className="relative">
-          <Search className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
-          <input type="text" placeholder="Buscar candidato..." value={search} onChange={(e) => setSearch(e.target.value)}
-            className="bg-brand-dark border border-brand-medium/40 text-slate-300 placeholder-slate-600 text-xs rounded-xl pl-9 pr-3 py-2 w-52 outline-none focus:border-brand-accent transition" />
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="relative">
+            <Search className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
+            <input type="text" placeholder="Buscar candidato..." value={search} onChange={(e) => setSearch(e.target.value)}
+              className="bg-brand-dark border border-brand-medium/40 text-slate-300 placeholder-slate-600 text-xs rounded-xl pl-9 pr-3 py-2 w-52 outline-none focus:border-brand-accent transition" />
+          </div>
+          <button
+            onClick={() => exportTrainingToExcel(candidates, modules, schools, currentUser)}
+            className="flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-semibold bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-400 border border-emerald-500/30 hover:border-emerald-500/50 transition cursor-pointer shadow-sm active:scale-95"
+            title="Exportar todos os candidatos em treinamento para Excel (.xlsx)"
+          >
+            <Download className="w-3.5 h-3.5" />
+            <span>Exportar Excel</span>
+          </button>
         </div>
       </div>
 
@@ -1892,6 +1903,14 @@ function SelectionWorkspace({ candidates, modules, currentUser, onMove, onUpdate
               </select>
             </div>
           )}
+          <button
+            onClick={() => exportSelectionToExcel(candidates, modules, schools, currentUser)}
+            className="flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-semibold bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-400 border border-emerald-500/30 hover:border-emerald-500/50 transition cursor-pointer shadow-sm active:scale-95"
+            title="Exportar todos os candidatos do processo seletivo para Excel (.xlsx)"
+          >
+            <Download className="w-3.5 h-3.5" />
+            <span>Exportar Excel</span>
+          </button>
         </div>
       </div>
 

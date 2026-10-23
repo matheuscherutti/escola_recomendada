@@ -165,6 +165,15 @@ const mapCandidateToTS = (row: any): Candidate => ({
   updatedAt: row.updated_at
 });
 
+const isValidUuid = (id: string | null | undefined): boolean => {
+  if (!id) return false;
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id);
+};
+
+const safeUserId = (id: string | null | undefined): string | null => {
+  return isValidUuid(id) ? (id as string) : null;
+};
+
 const mapCandidateToDb = (c: Candidate) => ({
   id: c.id,
   re: c.re,
@@ -174,7 +183,7 @@ const mapCandidateToDb = (c: Candidate) => ({
   status: c.status,
   selection_status: c.selectionStatus,
   gupy_status: c.gupyStatus || null,
-  validated_by: c.validatedBy || null,
+  validated_by: safeUserId(c.validatedBy),
   validated_at: c.validatedAt || null,
   rejected_at: c.rejectedAt || null,
   created_at: c.createdAt,
@@ -207,7 +216,7 @@ const mapModuleToDb = (m: CandidateModuleProgress) => ({
   class_sheets: m.classSheets || null,
   uploaded_at: m.uploadedAt || null,
   rejection_reason: m.rejectionReason || null,
-  updated_by: m.updatedBy || null,
+  updated_by: safeUserId(m.updatedBy),
   updated_at: m.updatedAt
 });
 
@@ -226,7 +235,7 @@ const mapLogToTS = (row: any): AuditLog => ({
 const mapLogToDb = (l: AuditLog) => ({
   id: l.id,
   created_at: l.createdAt,
-  user_id: l.userId || null,
+  user_id: safeUserId(l.userId),
   user_name: l.userName || null,
   candidate_id: l.candidateId,
   candidate_name: l.candidateName,
@@ -251,7 +260,7 @@ const mapNotificationToTS = (row: any): Notification => ({
 
 const mapNotificationToDb = (n: Notification) => ({
   id: n.id,
-  recipient_user_id: n.recipientUserId || null,
+  recipient_user_id: safeUserId(n.recipientUserId),
   recipient_school_id: n.recipientSchoolId || null,
   recipient_role: n.recipientRole || null,
   title: n.title,
